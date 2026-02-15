@@ -20,12 +20,13 @@ const pkg         = require("./package.json")
 /*  browser abstraction  */
 module.exports = class Browser {
     /*  create new browser  */
-    constructor (log, id, cfg, control, ffmpeg) {
+    constructor (log, id, cfg, control, ffmpeg, mediaDir) {
         this.log             = log
         this.id              = id
         this.cfg             = {}
         this.control         = control
         this.ffmpeg          = ffmpeg
+        this.mediaDir        = mediaDir || ""
         this.reset()
         this.reconfigure(cfg)
     }
@@ -44,6 +45,7 @@ module.exports = class Browser {
         this.framerateNow    = -1
         this.framesToSkip    = -1
         this.devToolsEnabled = false
+        this.refreshTimer    = null
     }
 
     /*  reconfigure browser  */
@@ -54,22 +56,27 @@ module.exports = class Browser {
         Object.assign(this.cfg, cfg)
 
         /*  pre-parse configuration strings  */
-        this.cfg.w = parseInt(this.cfg.w)
-        this.cfg.h = parseInt(this.cfg.h)
-        this.cfg.x = parseInt(this.cfg.x)
-        this.cfg.y = parseInt(this.cfg.y)
-        this.cfg.f = parseInt(this.cfg.f)
-        this.cfg.O = parseInt(this.cfg.O)
-        this.cfg.o = parseInt(this.cfg.o)
-        this.cfg.C = parseInt(this.cfg.C)
-        this.cfg.k = parseInt(this.cfg.k)
-        this.cfg.z = parseFloat(this.cfg.z)
+        this.cfg.w  = parseInt(this.cfg.w)
+        this.cfg.h  = parseInt(this.cfg.h)
+        this.cfg.f  = parseInt(this.cfg.f)
+        this.cfg.O  = parseInt(this.cfg.O)
+        this.cfg.o  = parseInt(this.cfg.o)
+        this.cfg.C  = parseInt(this.cfg.C)
+        this.cfg.k  = parseInt(this.cfg.k)
+        this.cfg.z  = parseFloat(this.cfg.z)
+        this.cfg.ai = parseInt(this.cfg.ai)
+        this.cfg.si = parseInt(this.cfg.si)
+        this.cfg.sf = parseFloat(this.cfg.sf)
 
         /*  recalculate capture framerate  */
         this.recalcCaptureFramerate()
 
         /*  optionally reconfigure already running worker instance  */
         this.update()
+
+        /*  update auto-refresh timer if running  */
+        if (this.content !== null)
+            this.updateRefreshTimer()
 
         /*  control devTools window  */
         if (this.content !== null) {
@@ -105,10 +112,8 @@ module.exports = class Browser {
         if (framerate < 0)
             framerate = 0
 
-        /*  optionally adapt framerate  */
-        if (this.cfg.D && !this.cfg.N && !this.cfg.P)
-            framerate = 0
-        else if (this.cfg.N && this.cfg.a && framerate > 0) {
+        /*  adapt framerate for NDI adaptive mode  */
+        if (this.cfg.N && this.cfg.a && framerate > 0) {
             if (this.cfg.l) {
                 /*  for NDI Adaptive with Tally Reload mode, we drop the framerate
                     dramatically down if we are not in preview or program  */
@@ -149,12 +154,165 @@ module.exports = class Browser {
 
     /*  check whether browser has a valid configuration  */
     valid () {
-        return (
-            (this.cfg.D || this.cfg.N)
-            && (!this.cfg.N || (this.cfg.N && (this.cfg.n || this.cfg.m)))
-            && this.cfg.t !== ""
-            && this.cfg.u !== ""
+        const hasInput = (
+            (this.cfg.it === "url" && this.cfg.u !== "") ||
+            (this.cfg.it !== "url" && this.cfg.if !== "")
         )
+        return (
+            this.cfg.N
+            && (this.cfg.n || this.cfg.m)
+            && this.cfg.t !== ""
+            && hasInput
+        )
+    }
+
+    /*  manage the auto-refresh timer  */
+    updateRefreshTimer () {
+        /*  clear existing timer  */
+        if (this.refreshTimer !== null) {
+            clearInterval(this.refreshTimer)
+            this.refreshTimer = null
+        }
+        /*  start new timer if enabled and running  */
+        if (this.cfg.ar && this.content !== null) {
+            const intervalMs = Math.max(5, this.cfg.ai) * 1000
+            this.log.info(`browser: auto-refresh enabled every ${this.cfg.ai}s`)
+            this.refreshTimer = setInterval(() => {
+                if (this.content !== null && !this.content.isDestroyed()) {
+                    this.log.info("browser: auto-refresh triggered")
+                    this.content.reload()
+                }
+            }, intervalMs)
+        }
+    }
+
+    /*  generate HTML page for media input types  */
+    generateMediaHTML () {
+        const files = this.cfg.if ? this.cfg.if.split("\n").filter((f) => f.trim() !== "") : []
+        if (files.length === 0)
+            return null
+
+        if (this.cfg.it === "image") {
+            /*  single image display  */
+            const filePath = files[0]
+            const fileUrl = `file://${filePath.replace(/\\/g, "/")}`
+            return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+img { width: 100%; height: 100%; object-fit: contain; display: block; }
+</style>
+</head>
+<body>
+<img src="${fileUrl}" alt=""/>
+</body>
+</html>`
+        }
+        else if (this.cfg.it === "video") {
+            /*  single video playback (looping)  */
+            const filePath = files[0]
+            const fileUrl = `file://${filePath.replace(/\\/g, "/")}`
+            const ext = path.extname(filePath).toLowerCase().slice(1)
+            const mimeMap = { mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg", mov: "video/mp4" }
+            const mime = mimeMap[ext] || "video/mp4"
+            return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+video { width: 100%; height: 100%; object-fit: contain; display: block; }
+</style>
+</head>
+<body>
+<video src="${fileUrl}" type="${mime}" autoplay loop muted playsinline></video>
+</body>
+</html>`
+        }
+        else if (this.cfg.it === "slideshow") {
+            /*  slideshow with CSS fade transitions  */
+            const intervalMs = Math.max(1, this.cfg.si) * 1000
+            const fadeMs     = Math.max(0.1, Math.min(this.cfg.sf, this.cfg.si * 0.9)) * 1000
+            const fileUrls   = files.map((f) => `file://${f.replace(/\\/g, "/")}`)
+            const urlsJson   = JSON.stringify(fileUrls)
+            return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+.slide {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    opacity: 0;
+    transition: opacity ${fadeMs}ms ease-in-out;
+}
+.slide.active { opacity: 1; }
+img, video {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+}
+</style>
+</head>
+<body>
+<script>
+(function() {
+    const files = ${urlsJson};
+    const interval = ${intervalMs};
+    const fade = ${fadeMs};
+    let current = 0;
+    const container = document.body;
+
+    function isVideo(url) {
+        return /\\.(mp4|webm|ogg|mov)$/i.test(url);
+    }
+
+    function createSlide(url) {
+        const div = document.createElement("div");
+        div.className = "slide";
+        if (isVideo(url)) {
+            const v = document.createElement("video");
+            v.src = url; v.autoplay = false; v.loop = false; v.muted = true; v.playsInline = true;
+            div.appendChild(v);
+        } else {
+            const img = document.createElement("img");
+            img.src = url; img.alt = "";
+            div.appendChild(img);
+        }
+        return div;
+    }
+
+    const slides = files.map(createSlide);
+    slides.forEach(s => container.appendChild(s));
+
+    function showSlide(idx) {
+        slides.forEach(s => s.classList.remove("active"));
+        const slide = slides[idx];
+        if (isVideo(slide.querySelector("video, img").tagName === "VIDEO" ? slide.querySelector("video") : null)) {
+            const v = slide.querySelector("video");
+            if (v) { v.currentTime = 0; v.play().catch(() => {}); }
+        }
+        slide.classList.add("active");
+    }
+
+    if (slides.length > 0) {
+        showSlide(0);
+        if (slides.length > 1) {
+            setInterval(function() {
+                current = (current + 1) % slides.length;
+                showSlide(current);
+            }, interval);
+        }
+    }
+})();
+</script>
+</body>
+</html>`
+        }
+        return null
     }
 
     /*  start browser  */
@@ -211,8 +369,6 @@ module.exports = class Browser {
         /*  notify content of tally information  */
         const changeVisibilityState = (state) => {
             if (this.content === null)
-                return
-            if (this.cfg.D)
                 return
             this.content.webContents.executeJavaScript(`
                 vingester.visibility(${JSON.stringify(state)});
@@ -306,29 +462,6 @@ module.exports = class Browser {
         /*  determine window title  */
         const title = (this.cfg.t == null ? "Vingester" : this.cfg.t)
 
-        /*  determine target display of browser window  */
-        const displays = util.AvailableDisplays.determine(electron)
-        let D = electron.screen.getPrimaryDisplay()
-        if (this.cfg.D) {
-            let display = displays.find((display) => display.num === this.cfg.d)
-            if (display === undefined)
-                display = displays.find((display) => display.num === 0)
-            D = electron.screen.getDisplayMatching({
-                x:      display.x,
-                y:      display.y,
-                width:  display.w,
-                height: display.h
-            })
-        }
-
-        /*  determine position of browser window (on its target display)  */
-        let pos = {}
-        if (this.cfg.D && this.cfg.x !== null && this.cfg.y !== null) {
-            const x = D.bounds.x + this.cfg.x
-            const y = D.bounds.y + this.cfg.y
-            pos = { x, y }
-        }
-
         /*  create browser session  */
         let session = electron.session.fromPartition("vingester-browser-content")
         if (this.cfg.S) {
@@ -343,7 +476,7 @@ module.exports = class Browser {
             })
         }
 
-        /*  create content browser window (visible or offscreen)  */
+        /*  create content browser window (offscreen - NDI only mode)  */
         this.log.info(`browser: create (${this.cfg.w}x${this.cfg.h} @ ${this.cfg.z})`)
         const content = new electron.BrowserWindow({
             width:                          this.cfg.w,
@@ -353,36 +486,14 @@ module.exports = class Browser {
             maxWidth:                       this.cfg.w,
             maxHeight:                      this.cfg.h,
             useContentSize:                 true,
+            show:                           false,
             ...(this.cfg.c === "transparent" ? {
                 transparent:                true
             } : {
                 backgroundColor:            this.cfg.c
             }),
-            ...(this.cfg.D ? {
-                ...pos,
-                resizable:                  false,
-                movable:                    false,
-                minimizable:                false,
-                maximizable:                false,
-                closable:                   false,
-                autoHideMenuBar:            true,
-                roundedCorners:             false,
-                frame:                      false,
-                hasShadow:                  false,
-                enableLargerThanScreen:     true,
-                fullscreenable:             true,
-                titleBarStyle:              "hidden",
-                thickFrame:                 false,
-                title
-            } : {
-                show:                       false
-            }),
             webPreferences: {
-                ...(this.cfg.D ? {
-                    offscreen:              false
-                } : {
-                    offscreen:              true
-                }),
+                offscreen:                  true,
                 zoomFactor:                 this.cfg.z,
                 session,
                 devTools:                   true,
@@ -440,8 +551,8 @@ module.exports = class Browser {
                 callback(-3)
         })
 
-        /*  control audio (we unmute for "frameless" window and "headless" with no audio channels)  */
-        if (this.cfg.D || (this.cfg.N && this.cfg.C === 0))
+        /*  mute audio for NDI headless mode (audio captured via postload)  */
+        if (this.cfg.C === 0)
             content.webContents.setAudioMuted(false)
         else
             content.webContents.setAudioMuted(true)
@@ -449,55 +560,18 @@ module.exports = class Browser {
         /*  force aspect ratio  */
         content.setAspectRatio(this.cfg.w / this.cfg.h)
 
-        /*  force always on top  */
-        if (this.cfg.p) {
-            /*  show window higher than all regular windows, but still behind
-                things like spotlight or the screen saver and allow the window to
-                show over a fullscreen window  */
-            content.setAlwaysOnTop(true, "pop-up-menu", 1)
-            content.setVisibleOnAllWorkspaces(true)
-        }
-        else {
-            content.setAlwaysOnTop(false)
-            content.setVisibleOnAllWorkspaces(false)
-        }
-
-        /*  capture and send browser frame content  */
-        if (this.cfg.D) {
-            /*  use Frame subscription where framerate cannot be controlled
-                (but which is available also for onscreen rendering)  */
-            this.framerateSource = D.displayFrequency
-            this.framerateTarget = this.cfg.f
-            this.framerateNow    = -1
-            this.recalcCaptureFramerate()
-            let framesSkipped = 0
-            this.subscriber = (image, dirty) => {
-                if (this.worker === null || this.worker.isDestroyed())
-                    return
-                if (framesSkipped++ < this.framesToSkip)
-                    return
-                framesSkipped = 0
-                const buffer = image.getBitmap()
-                const size   = image.getSize()
-                const ratio  = image.getAspectRatio()
-                this.worker.webContents.send("video-capture", buffer, size, ratio, dirty)
-            }
-        }
-        else if (this.cfg.N) {
-            /*  use Paint hook where framerate can be controlled
-                (but which is available for offscreen rendering only)  */
-            this.framerateSource = 240
-            this.framerateTarget = this.cfg.f
-            this.framerateNow    = -1
-            this.recalcCaptureFramerate()
-            this.subscriber = (ev, dirty, image) => {
-                if (this.worker === null || this.worker.isDestroyed())
-                    return
-                const buffer = image.getBitmap()
-                const size   = image.getSize()
-                const ratio  = image.getAspectRatio()
-                this.worker.webContents.send("video-capture", buffer, size, ratio, dirty)
-            }
+        /*  setup NDI paint capture  */
+        this.framerateSource = 240
+        this.framerateTarget = this.cfg.f
+        this.framerateNow    = -1
+        this.recalcCaptureFramerate()
+        this.subscriber = (ev, dirty, image) => {
+            if (this.worker === null || this.worker.isDestroyed())
+                return
+            const buffer = image.getBitmap()
+            const size   = image.getSize()
+            const ratio  = image.getAspectRatio()
+            this.worker.webContents.send("video-capture", buffer, size, ratio, dirty)
         }
 
         /*  receive content browser console outputs  */
@@ -517,7 +591,10 @@ module.exports = class Browser {
                 this.control.webContents.send("trace", { level, message, id: this.id })
         })
 
-        /*  ignore any interactions on worker and content browser windows  */
+        /*  ignore certain window events  */
+        content.on("page-title-updated", (ev) => {
+            ev.preventDefault()
+        })
         worker.setMenu(null)
         worker.on("close",              (ev) => { ev.preventDefault() })
         worker.on("minimize",           (ev) => { ev.preventDefault() })
@@ -549,11 +626,6 @@ module.exports = class Browser {
         content.on("unmaximize",        (ev) => { ev.preventDefault() })
         content.on("enter-full-screen", (ev) => { ev.preventDefault() })
         content.on("leave-full-screen", (ev) => { ev.preventDefault() })
-
-        /*  ignore certain window events  */
-        content.on("page-title-updated", (ev) => {
-            ev.preventDefault()
-        })
 
         /*  remember window object  */
         this.content = content
@@ -611,6 +683,25 @@ module.exports = class Browser {
             content.webContents.setZoomFactor(this.cfg.z)
         })
 
+        /*  determine the URL to load  */
+        let loadUrl = this.cfg.u
+        if (this.cfg.it !== "url") {
+            /*  generate HTML for media input type and write to temp file  */
+            const html = this.generateMediaHTML()
+            if (html !== null) {
+                const tmpPath = path.join(
+                    electron.app.getPath("userData"),
+                    `generated-${this.id}.html`
+                )
+                await fs.promises.writeFile(tmpPath, html, { encoding: "utf8" })
+                loadUrl = `file://${tmpPath.replace(/\\/g, "/")}`
+                this.log.info(`browser: using generated media HTML at: ${tmpPath}`)
+            }
+            else {
+                this.log.warn("browser: media input type set but no files configured, falling back to URL")
+            }
+        }
+
         /*  finally load the Web Content  */
         return new Promise((resolve, reject) => {
             content.webContents.once("did-fail-load", (ev, code, desc, url, isMainFrame) => {
@@ -624,10 +715,12 @@ module.exports = class Browser {
                 ev.preventDefault()
                 this.log.info("browser: content: started")
                 this.update()
+                /*  start auto-refresh timer after successful load  */
+                this.updateRefreshTimer()
                 this.starting = false
                 resolve(true)
             })
-            content.loadURL(this.cfg.u)
+            content.loadURL(loadUrl)
         })
     }
 
@@ -644,52 +737,27 @@ module.exports = class Browser {
             })
         }
 
-        /*  optionally update already running content browser instance  */
+        /*  update content browser paint capturing  */
         if (this.content !== null) {
-            if (this.cfg.D) {
-                if (this.framerateNow <= 0) {
-                    if (this.subscribed) {
-                        this.log.info("browser: stopping frame capturing (method: frame)")
-                        this.framesToSkip = this.framerateSource
-                        this.content.webContents.endFrameSubscription()
-                        this.subscribed = false
-                    }
-                }
-                else {
-                    const framesToSkip = Math.trunc((this.framerateSource / this.framerateNow) - 1)
-                    if (this.framesToSkip !== framesToSkip) {
-                        this.log.info("browser: changing capturing frame rate to " +
-                            `${this.framerateNow} (method: frame)`)
-                        this.framesToSkip = framesToSkip
-                    }
-                    if (!this.subscribed) {
-                        this.log.info("browser: starting frame capturing (method: frame)")
-                        this.content.webContents.beginFrameSubscription(false, this.subscriber)
-                        this.subscribed = true
-                    }
+            if (this.framerateNow <= 0) {
+                if (this.subscribed) {
+                    this.log.info("browser: stopping frame capturing (method: paint)")
+                    this.content.webContents.stopPainting()
+                    this.content.webContents.off("paint", this.subscriber)
+                    this.subscribed = false
                 }
             }
-            else if (this.cfg.N) {
-                if (this.framerateNow <= 0) {
-                    if (this.subscribed) {
-                        this.log.info("browser: stopping frame capturing (method: paint)")
-                        this.content.webContents.stopPainting()
-                        this.content.webContents.off("paint", this.subscriber)
-                        this.subscribed = false
-                    }
+            else {
+                if (this.content.webContents.getFrameRate() !== this.framerateNow) {
+                    this.log.info("browser: changing capturing frame rate to " +
+                        `${this.framerateNow} (method: paint)`)
+                    this.content.webContents.setFrameRate(this.framerateNow)
                 }
-                else {
-                    if (this.content.webContents.getFrameRate() !== this.framerateNow) {
-                        this.log.info("browser: changing capturing frame rate to " +
-                            `${this.framerateNow} (method: paint)`)
-                        this.content.webContents.setFrameRate(this.framerateNow)
-                    }
-                    if (!this.subscribed) {
-                        this.log.info("browser: starting frame capturing (method: paint)")
-                        this.content.webContents.on("paint", this.subscriber)
-                        this.content.webContents.startPainting()
-                        this.subscribed = true
-                    }
+                if (!this.subscribed) {
+                    this.log.info("browser: starting frame capturing (method: paint)")
+                    this.content.webContents.on("paint", this.subscriber)
+                    this.content.webContents.startPainting()
+                    this.subscribed = true
                 }
             }
         }
@@ -715,26 +783,25 @@ module.exports = class Browser {
         if (this.content === null || this.worker === null)
             throw new Error("browser still not started")
 
-        /*  stop frame capturing  */
-        if (this.cfg.D) {
-            if (this.subscribed) {
-                this.content.webContents.endFrameSubscription()
-                this.subscribed = false
-            }
+        /*  stop auto-refresh timer  */
+        if (this.refreshTimer !== null) {
+            clearInterval(this.refreshTimer)
+            this.refreshTimer = null
         }
-        else if (this.cfg.N) {
-            if (this.subscribed) {
-                this.content.webContents.off("paint", this.subscriber)
-                this.content.webContents.stopPainting()
-                this.subscribed = false
-            }
+
+        /*  stop frame capturing  */
+        if (this.subscribed) {
+            this.content.webContents.off("paint", this.subscriber)
+            this.content.webContents.stopPainting()
+            this.subscribed = false
         }
 
         /*  notify worker and wait until its processVideo/processAudio
             callbacks were at least done one last time  */
         this.worker.webContents.send("browser-worker-stop")
         await new Promise((resolve) => {
-            electron.ipcMain.on("browser-worker-stopped", () => {
+            /*  use once() to avoid listener accumulation across multiple stop() calls  */
+            electron.ipcMain.once("browser-worker-stopped", () => {
                 resolve()
             })
         })
@@ -758,6 +825,15 @@ module.exports = class Browser {
             this.worker.destroy()
         if (!this.content.isDestroyed())
             this.content.destroy()
+
+        /*  clean up any generated HTML temp file  */
+        if (this.cfg.it !== "url") {
+            const tmpPath = path.join(
+                electron.app.getPath("userData"),
+                `generated-${this.id}.html`
+            )
+            fs.promises.unlink(tmpPath).catch(() => {})
+        }
 
         /*  reset the internal state  */
         this.reset()
@@ -787,4 +863,3 @@ module.exports = class Browser {
         return true
     }
 }
-

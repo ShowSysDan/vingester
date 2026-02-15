@@ -61,6 +61,13 @@
                                     <span class="icon"><i class="fas fa-globe" data-fa-transform="shrink-7"></i></span>
                                 </span>
                             </div>
+                            <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>Web UI dialog.' }"
+                                v-on:click="modalToggle('webui')">
+                                <span class="icon-stack">
+                                    <span class="icon"><i class="fas fa-circle"></i></span>
+                                    <span class="icon"><i class="fas fa-desktop" data-fa-transform="shrink-7"></i></span>
+                                </span>
+                            </div>
                             <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>application error messages.' }"
                                 v-on:click="modalToggle('messages')">
                                 <span class="icon-stack">
@@ -148,7 +155,7 @@
                                     </div>
                                 </div>
                                 <div class="field field-gpu" v-on:click="toggleGPU"
-                                    v-tippy="{ placement: 'bottom', content: (gpu ? 'Disable the currently enabled' : 'Enable the currently disabled') + '<br/>GPU hardware acceleration.<br/>Enable for Frameless mode.<br/>Disable for Headless mode.' }">
+                                    v-tippy="{ placement: 'bottom', content: (gpu ? 'Disable the currently enabled' : 'Enable the currently disabled') + '<br/>GPU hardware acceleration.<br/>Disable for NDI headless mode (recommended).<br/>Enable only if rendering requires GPU.' }">
                                     <div class="input-button">
                                         <span v-show="gpu"><span class="icon"><i class="fas fa-check-circle"></i></span>&nbsp;&nbsp;<span class="label">GPU:</span> YES</span>
                                         <span v-show="!gpu"><span class="icon"><i class="fas fa-times-circle"></i></span>&nbsp;&nbsp;<span class="label">GPU:</span> NO</span>
@@ -221,6 +228,48 @@
                         <p>
                         The <tt><i>browser</i></tt> parameter is the <b>BROWSER / Title</b> of the browser (or <tt>all</tt> for all
                         browsers) and the <tt><i>command</i></tt> parameter is <tt>start</tt>, <tt>reload</tt> or <tt>stop</tt>.
+                        </p>
+                    </div>
+                </div>
+                <div class="ui-modal-webui" v-show="modal === 'webui'">
+                    <div class="form">
+                        <div class="label label-webui">Web UI:</div>
+                        <div class="field field-webui"
+                            v-tippy="{ placement: 'top', content: 'Click to ' + (webuiEnabled ? 'disable' : 'enable') + ' the Web UI dashboard<br/>for browser management and media uploads.' }">
+                            <div class="toggle" v-on:click="toggleWebUI()">
+                                <div class="toggle-option" v-bind:class="{ selected:  webuiEnabled }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
+                                <div class="toggle-option" v-bind:class="{ selected: !webuiEnabled }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
+                            </div>
+                        </div>
+                        <div class="label label-webui-addr">IP Address:</div>
+                        <div class="field field-webui-addr"
+                            v-tippy="{ placement: 'top', content: 'IP address to listen on<br/>(Use 0.0.0.0 for any address).' }">
+                            <input type="text" v-model="webuiAddr"
+                                v-bind:class="{ disabled: webuiEnabled }"
+                                v-bind:disabled="webuiEnabled">
+                        </div>
+                        <div class="label label-webui-port">TCP Port:</div>
+                        <div class="field field-webui-port"
+                            v-tippy="{ placement: 'top', content: 'TCP port to listen on.' }">
+                            <input type="text" v-model="webuiPort"
+                                v-bind:class="{ disabled: webuiEnabled }"
+                                v-bind:disabled="webuiEnabled">
+                        </div>
+                    </div>
+                    <div class="about">
+                        If enabled, <b>Vingester</b> serves a <i>Web UI Dashboard</i> on the configured
+                        address and port. Open it in any browser for a live overview of all instances,
+                        start/stop/reload controls, and a <i>Media Manager</i> for uploading images
+                        and videos used by image, video and slideshow input types.
+                        <p>
+                        Access the Web UI at:
+                        </p>
+                        <div class="url">
+                            <tt>http://{{ webuiAddr }}:{{ webuiPort }}/</tt>
+                        </div>
+                        <p>
+                        The REST API for the Web UI is available at <tt>/api/instances</tt>,
+                        <tt>/api/all/{command}</tt> and <tt>/api/media</tt>.
                         </p>
                     </div>
                 </div>
@@ -593,6 +642,19 @@
                                     </div>
                                     <div class="row" v-show="!browser._">
                                         <div class="group">INPUT:</div>
+                                        <div class="label">Type:</div>
+                                        <div class="field"
+                                            v-tippy="{ placement: 'top', content: 'Select input source type: URL for web content,<br/>Image for a still image file, Video for a looping video,<br/>or Slideshow for multiple images with fade transitions.' }">
+                                            <div class="toggle" v-on:click="toggle(browser, 'it', [ 'url', 'image', 'video', 'slideshow' ])">
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.it === 'url'       }"><span class="icon"><i class="fas fa-globe"></i></span> URL</div>
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.it === 'image'     }"><span class="icon"><i class="fas fa-image"></i></span> Image</div>
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.it === 'video'     }"><span class="icon"><i class="fas fa-film"></i></span> Video</div>
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.it === 'slideshow' }"><span class="icon"><i class="fas fa-images"></i></span> Slideshow</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row" v-show="!browser._ && browser.it === 'url'">
+                                        <div class="group"></div>
                                         <div class="label label-url">URL:</div>
                                         <div class="field field-url"
                                             v-tippy="{ placement: 'top', content: 'Uniform Resource Locator (URL)<br/>of Web Content to render.' }">
@@ -600,6 +662,62 @@
                                                 v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.u }"
                                                 v-bind:disabled="running[browser.id]">
                                         </div>
+                                    </div>
+                                    <div class="row" v-show="!browser._ && (browser.it === 'image' || browser.it === 'video')">
+                                        <div class="group"></div>
+                                        <div class="label">File:</div>
+                                        <div class="field field-url"
+                                            v-tippy="{ placement: 'top', content: 'Path to the image or video file to display.' }">
+                                            <input type="text" v-model="browser.if" v-on:keyup="changed(browser)"
+                                                v-bind:class="{ disabled: running[browser.id] }"
+                                                v-bind:disabled="running[browser.id]">
+                                        </div>
+                                        <div class="field field-reload"
+                                            v-tippy="{ placement: 'top', content: 'Browse for a media file.' }"
+                                            v-bind:class="{ disabled: running[browser.id] }"
+                                            v-on:click="selectMediaFiles(browser, false)">
+                                            <div class="input-button">
+                                                <span class="icon"><i class="fas fa-folder-open"></i></span> Browse
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row" v-show="!browser._ && browser.it === 'slideshow'">
+                                        <div class="group"></div>
+                                        <div class="label">Files:</div>
+                                        <div class="field field-url"
+                                            v-tippy="{ placement: 'top', content: 'Paths to image/video files for the slideshow,<br/>one per line.' }">
+                                            <input type="text" v-model="browser.if" v-on:keyup="changed(browser)"
+                                                v-bind:class="{ disabled: running[browser.id] }"
+                                                v-bind:disabled="running[browser.id]"
+                                                placeholder="(one file path per line)">
+                                        </div>
+                                        <div class="field field-reload"
+                                            v-tippy="{ placement: 'top', content: 'Browse for multiple image/video files.' }"
+                                            v-bind:class="{ disabled: running[browser.id] }"
+                                            v-on:click="selectMediaFiles(browser, true)">
+                                            <div class="input-button">
+                                                <span class="icon"><i class="fas fa-folder-open"></i></span> Browse
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="row" v-show="!browser._ && browser.it === 'slideshow'">
+                                        <div class="group"></div>
+                                        <div class="label label-si">Interval:</div>
+                                        <div class="field field-si"
+                                            v-tippy="{ placement: 'top', content: 'Time in seconds each slide is shown before advancing.' }">
+                                            <input type="text" v-model="browser.si" v-on:keyup="changed(browser)"
+                                                v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.si }"
+                                                v-bind:disabled="running[browser.id]">
+                                        </div>
+                                        <div class="unit">s</div>
+                                        <div class="label label-sf">Fade:</div>
+                                        <div class="field field-sf"
+                                            v-tippy="{ placement: 'top', content: 'Duration in seconds of the crossfade transition between slides.' }">
+                                            <input type="text" v-model="browser.sf" v-on:keyup="changed(browser)"
+                                                v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.sf }"
+                                                v-bind:disabled="running[browser.id]">
+                                        </div>
+                                        <div class="unit">s</div>
                                     </div>
                                     <div class="row" v-show="!browser._">
                                         <div class="group">PATCH:</div>
@@ -660,84 +778,39 @@
                                         </div>
                                     </div>
                                     <div class="row" v-show="!browser._">
-                                        <div class="group">OUTPUT 1:</div>
-                                        <div class="label label-output">Frameless:</div>
+                                        <div class="group">REFRESH:</div>
+                                        <div class="label">Auto-Refresh:</div>
                                         <div class="field"
-                                            v-tippy="{ placement: 'top', content: 'Click to ' + (browser.D ? 'disable' : 'enable') + ' Frameless mode, where<br/>Web Content is rendered into a desktop window.' }">
-                                            <div class="toggle" v-on:click="toggle(browser, 'D', [ true, false ])">
-                                                <div class="toggle-option" v-bind:class="{ selected: browser.D === true  }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
-                                                <div class="toggle-option" v-bind:class="{ selected: browser.D === false }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
+                                            v-tippy="{ placement: 'top', content: 'Click to ' + (browser.ar ? 'disable' : 'enable') + ' automatic periodic page refresh.' }">
+                                            <div class="toggle" v-on:click="toggle(browser, 'ar', [ true, false ])">
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.ar === true  }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.ar === false }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div class="row" v-show="!browser._ && browser.D">
-                                        <div class="group"></div>
-                                        <div class="sub-group">VIDEO:</div>
-                                        <div class="cluster" v-show="browser.D">
-                                            <div class="label label-position">Position:</div>
-                                            <div class="field field-x"
-                                                v-tippy="{ placement: 'top', content: 'X-Position of desktop window (0 is at left border)<br/>(absolute or relative to display).' }">
-                                                <input type="text" v-model="browser.x" v-on:keyup="changed(browser)"
-                                                    v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.x }"
+                                        <div class="cluster" v-show="browser.ar">
+                                            <div class="label">Interval:</div>
+                                            <div class="field field-framerate"
+                                                v-tippy="{ placement: 'top', content: 'Number of seconds between automatic page refreshes.' }">
+                                                <input type="text" v-model="browser.ai" v-on:keyup="changed(browser)"
+                                                    v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.ai }"
                                                     v-bind:disabled="running[browser.id]">
                                             </div>
-                                            <div class="sep">x</div>
-                                            <div class="field field-y"
-                                                v-tippy="{ placement: 'top', content: 'Y-Position of desktop window (0 is at top border)<br/>(absolute or relative to display).' }">
-                                                <input type="text" v-model="browser.y" v-on:keyup="changed(browser)"
-                                                    v-bind:class="{ disabled: running[browser.id], invalid: invalid[browser.id]?.y }"
-                                                    v-bind:disabled="running[browser.id]">
-                                            </div>
-                                            <div class="unit">px</div>
-                                            <div class="label">Display:</div>
-                                            <div class="field field-display"
-                                                v-tippy="{ placement: 'top', content: 'Selection of display<br/>for relative positioning.' }">
-                                                <div class="toggle" v-on:click="toggle(browser, 'd', displays.map((d) => d.num))">
-                                                    <div v-for="display in displays" v-bind:key="display.num"
-                                                        class="toggle-option toggle-display"
-                                                        v-show="browser.d === display.num">
-                                                        <div class="num">{{ display.num }}</div>
-                                                        <canvas class="display-icon"
-                                                            v-bind:ref="'display-icon-' + browser.id + '-' + display.num"
-                                                            v-bind:class="[ 'display-icon-' + display.num ]">
-                                                        </canvas>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div class="label">Pin:</div>
-                                            <div class="field field-pin"
-                                                v-tippy="{ placement: 'top', content: 'Click to ' + (browser.p ? 'disable' : 'enable') + ' pinning the desktop window to the top,<br/>i.e., above all other windows on the desktop.' }">
-                                                <div class="toggle" v-on:click="toggle(browser, 'p', [ true, false ])">
-                                                    <div class="toggle-option toggle-option-pin"   v-bind:class="{ selected: browser.p === true  }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
-                                                    <div class="toggle-option toggle-option-nopin" v-bind:class="{ selected: browser.p === false }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
-                                                </div>
-                                            </div>
+                                            <div class="unit">s</div>
                                         </div>
-                                    </div>
-                                    <div class="row" v-show="!browser._ && browser.D">
-                                        <div class="group"></div>
-                                        <div class="sub-group">AUDIO:</div>
-                                        <div class="label label-device">Device:</div>
-                                        <div class="field field-device">
-                                            <vue-select class="select"
-                                                v-tippy="{ placement: 'top', content: 'Click to select<br/>audio output device.' }"
-                                                v-bind:options="audioDevices"
-                                                v-model="browser.A"
-                                                v-bind:placeholder="'(Default Audio Output Device)'"
-                                                v-bind:search-placeholder="'Type to search for audio device...'"
-                                                v-bind:searchable="true"
-                                                v-bind:close-on-select="true"
-                                                v-bind:empty-model-value="''"
-                                                v-on:update:model-value="changeOption(browser, 'A', $event)"
-                                                v-bind:class="{ disabled: running[browser.id] }"
-                                                v-bind:disabled="running[browser.id]"></vue-select>
+                                        <div class="label label-autostart">Auto-Start:</div>
+                                        <div class="field"
+                                            v-tippy="{ placement: 'top', content: 'Click to ' + (browser.as ? 'disable' : 'enable') + ' automatic start of this instance<br/>when Vingester launches.' }">
+                                            <div class="toggle" v-on:click="toggle(browser, 'as', [ true, false ])">
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.as === true  }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
+                                                <div class="toggle-option" v-bind:class="{ selected: browser.as === false }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="row" v-show="!browser._">
-                                        <div class="group">OUTPUT 2:</div>
-                                        <div class="label label-output">Headless:</div>
+                                        <div class="group">NDI OUTPUT:</div>
+                                        <div class="label label-output">Enabled:</div>
                                         <div class="field"
-                                            v-tippy="{ placement: 'top', content: 'Click to ' + (browser.N ? 'disable' : 'enable') + ' Headless mode, where Web Content is<br/>multicasted via NDI or passed to FFmpeg.' }">
+                                            v-tippy="{ placement: 'top', content: 'Click to ' + (browser.N ? 'disable' : 'enable') + ' NDI output, where Web Content is<br/>multicasted via NDI or passed to FFmpeg.' }">
                                             <div class="toggle" v-on:click="toggle(browser, 'N', [ true, false ])">
                                                 <div class="toggle-option" v-bind:class="{ selected: browser.N === true  }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
                                                 <div class="toggle-option" v-bind:class="{ selected: browser.N === false }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>

@@ -18,25 +18,26 @@ const log              = require("./vingester-log.js").scope("control")
 log.info("starting up")
 
 const browserFields = [
-    { name: "t", def: "",            valid: /^.+$/ },
-    { name: "i", def: "",            valid: /^.*$/ },
-    { name: "w", def: "1280",        valid: /^\d+$/ },
-    { name: "h", def: "720",         valid: /^\d+$/ },
-    { name: "c", def: "transparent", valid: /^(?:transparent|#[\da-fA-F]{3,6})$/ },
-    { name: "z", def: "1.0",         valid: /^(?:\d*\.\d+|\d+\.\d*|\d+)$/ },
-    { name: "u", def: "",            valid: /^.+$/ },
-    { name: "k", def: "0",           valid: /^\d+$/ },
-    { name: "j", def: "",            valid: /^.*$/ },
-    { name: "q", def: "",            valid: /^.*$/ },
-    { name: "Q", def: "",            valid: /^.*$/ },
-    { name: "x", def: "0",           valid: /^[+-]?\d+$/ },
-    { name: "y", def: "0",           valid: /^[+-]?\d+$/ },
-    { name: "A", def: "",            valid: /^.*$/ },
-    { name: "f", def: "30",          valid: /^\d+$/ },
-    { name: "O", def: "0",           valid: /^\d+$/ },
-    { name: "C", def: "2",           valid: /^\d+$/ },
-    { name: "o", def: "0",           valid: /^\d+$/ },
-    { name: "M", def: "",            valid: /^.*$/ }
+    { name: "t",  def: "",            valid: /^.+$/ },
+    { name: "i",  def: "",            valid: /^.*$/ },
+    { name: "w",  def: "1280",        valid: /^\d+$/ },
+    { name: "h",  def: "720",         valid: /^\d+$/ },
+    { name: "c",  def: "transparent", valid: /^(?:transparent|#[\da-fA-F]{3,6})$/ },
+    { name: "z",  def: "1.0",         valid: /^(?:\d*\.\d+|\d+\.\d*|\d+)$/ },
+    { name: "u",  def: "",            valid: /^.*$/ },  /*  optional: only required for InputType=url  */
+    { name: "ai", def: "300",         valid: /^\d+$/ },
+    { name: "if", def: "",            valid: /^.*$/ },
+    { name: "si", def: "5",           valid: /^\d+$/ },
+    { name: "sf", def: "1",           valid: /^(?:\d*\.\d+|\d+\.\d*|\d+)$/ },
+    { name: "k",  def: "0",           valid: /^\d+$/ },
+    { name: "j",  def: "",            valid: /^.*$/ },
+    { name: "q",  def: "",            valid: /^.*$/ },
+    { name: "Q",  def: "",            valid: /^.*$/ },
+    { name: "f",  def: "30",          valid: /^\d+$/ },
+    { name: "O",  def: "0",           valid: /^\d+$/ },
+    { name: "C",  def: "2",           valid: /^\d+$/ },
+    { name: "o",  def: "0",           valid: /^\d+$/ },
+    { name: "M",  def: "",            valid: /^.*$/ }
 ]
 
 const app = Vue.createApp({
@@ -70,7 +71,10 @@ const app = Vue.createApp({
             displays:          [],
             apiEnabled:        false,
             apiAddr:           "127.0.0.1",
-            apiPort:           "7211"
+            apiPort:           "7211",
+            webuiEnabled:      false,
+            webuiAddr:         "127.0.0.1",
+            webuiPort:         "7212"
         }
     },
     computed: {
@@ -209,6 +213,11 @@ const app = Vue.createApp({
             this.apiAddr    = api.addr
             this.apiPort    = api.port
         })
+        electron.ipcRenderer.on("webui", (ev, webui) => {
+            this.webuiEnabled = webui.enabled
+            this.webuiAddr    = webui.addr
+            this.webuiPort    = webui.port
+        })
         electron.ipcRenderer.on("update-updateable", (ev, updateable) => {
             this.updateUpdateable = updateable
         })
@@ -321,20 +330,23 @@ const app = Vue.createApp({
         },
         validateState (browser) {
             for (const field of browserFields) {
-                if (browser[field.name] === "")
+                if (browser[field.name] === undefined || browser[field.name] === "")
                     browser[field.name] = field.def
-                if (!(browser[field.name].match(field.valid)))
+                const val = String(browser[field.name])
+                if (!val.match(field.valid))
                     this.invalid[browser.id][field.name] = true
                 else
                     delete this.invalid[browser.id][field.name]
             }
-            if (typeof browser.d !== "number")
-                browser.d = 0
-            if (browser.d >= this.displays.length)
-                browser.d = (this.displays.length - 1)
-            if (   (browser.D || browser.N)
-                && (!browser.N || (browser.N && (browser.n || browser.m)))
-                && browser.t !== "" && browser.u !== "")
+            /*  validate NDI-only configuration (Output1 removed)  */
+            const hasInput = (
+                (browser.it === "url" && browser.u !== "") ||
+                (browser.it !== "url" && browser.if !== "")
+            )
+            if (   browser.N
+                && (browser.n || browser.m)
+                && browser.t !== ""
+                && hasInput)
                 delete this.invalid[browser.id].GLOBAL
             else
                 this.invalid[browser.id].GLOBAL = true
@@ -472,6 +484,21 @@ const app = Vue.createApp({
                 addr:    this.apiAddr,
                 port:    this.apiPort
             })
+        },
+        toggleWebUI () {
+            this.webuiEnabled = !this.webuiEnabled
+            electron.ipcRenderer.invoke("webui", {
+                enabled: this.webuiEnabled,
+                addr:    this.webuiAddr,
+                port:    this.webuiPort
+            })
+        },
+        async selectMediaFiles (browser, multiSelect) {
+            const files = await electron.ipcRenderer.invoke("select-media-files", multiSelect)
+            if (files !== null && files.length > 0) {
+                browser.if = files.join("\n")
+                this.changed(browser)
+            }
         },
         toggleGPU () {
             electron.ipcRenderer.invoke("gpu", !this.gpu)
