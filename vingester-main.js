@@ -1026,6 +1026,12 @@ electron.app.on("ready", async () => {
                 }
             })
 
+            /*  helper: persist in-memory browsers to store  */
+            const saveBrowsersToStore = () => {
+                const cfgArray = Object.keys(browsers).map((bid) => ({ id: bid, ...browsers[bid].cfg }))
+                saveConfigs(cfgArray)
+            }
+
             /*  REST API: list all instances  */
             this.hapi.route({
                 method:  "GET",
@@ -1036,21 +1042,72 @@ electron.app.on("ready", async () => {
                         const b = browsers[id]
                         result.push({
                             id,
+                            running: b.running(),
                             title:   b.cfg.t,
                             info:    b.cfg.i,
                             url:     b.cfg.u,
                             inputType: b.cfg.it,
-                            running: b.running(),
                             width:   b.cfg.w,
                             height:  b.cfg.h,
                             fps:     b.cfg.f,
-                            ndi:     b.cfg.n,
+                            ndi:     b.cfg.N,
                             autoRefresh: b.cfg.ar,
                             autoRefreshInterval: b.cfg.ai,
-                            autoStart: b.cfg.as
+                            autoStart: b.cfg.as,
+                            cfg:     { ...b.cfg }
                         })
                     }
                     return h.response(JSON.stringify(result)).type("application/json").code(200)
+                }
+            })
+
+            /*  REST API: add new instance  */
+            this.hapi.route({
+                method:  "POST",
+                path:    "/api/instances",
+                handler: async (req, h) => {
+                    const body = req.payload || {}
+                    const id = new UUID(1).fold(2).map((n) =>
+                        n.toString(16).toUpperCase().padStart(2, "0")).join("")
+                    const cfg = { id, ...body }
+                    sanitizeConfig(cfg)
+                    await controlBrowser("add", id, cfg)
+                    saveBrowsersToStore()
+                    log.info(`WebUI: added browser instance: ${cfg.t}`)
+                    return h.response(JSON.stringify({ ok: true, id })).type("application/json").code(201)
+                }
+            })
+
+            /*  REST API: update instance config  */
+            this.hapi.route({
+                method:  "PATCH",
+                path:    "/api/instances/{id}",
+                handler: async (req, h) => {
+                    const { id } = req.params
+                    if (!browsers[id])
+                        throw new Boom.notFound("instance not found")
+                    const cfg = { ...browsers[id].cfg, ...(req.payload || {}) }
+                    sanitizeConfig(cfg)
+                    await controlBrowser("mod", id, cfg)
+                    saveBrowsersToStore()
+                    log.info(`WebUI: modified browser instance: ${cfg.t}`)
+                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
+                }
+            })
+
+            /*  REST API: delete instance  */
+            this.hapi.route({
+                method:  "DELETE",
+                path:    "/api/instances/{id}",
+                handler: async (req, h) => {
+                    const { id } = req.params
+                    if (!browsers[id])
+                        throw new Boom.notFound("instance not found")
+                    const title = browsers[id].cfg.t
+                    await controlBrowser("del", id)
+                    saveBrowsersToStore()
+                    log.info(`WebUI: deleted browser instance: ${title}`)
+                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
                 }
             })
 
@@ -1131,7 +1188,8 @@ electron.app.on("ready", async () => {
                                     name: entry,
                                     type: imageExts.has(ext) ? "image" : "video",
                                     size: stat.size,
-                                    url:  `/media/${entry}`
+                                    url:  `/media/${entry}`,
+                                    fullPath: path.join(mediaDir, entry)
                                 })
                             }
                         }
