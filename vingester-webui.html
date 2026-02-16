@@ -1575,7 +1575,7 @@
     async function deleteCurrentInstance () {
         if (!editingId) return
         const title = val("f-t") || "this instance"
-        if (!confirm("Delete "" + title + ""? This cannot be undone.")) return
+        if (!confirm("Delete '" + title + "'? This cannot be undone.")) return
         const r = await api("/api/instances/" + editingId, { method: "DELETE" })
         if (r.ok) {
             toast("Deleted: " + title, "success")
@@ -1728,7 +1728,7 @@
     }
 
     async function deleteMedia (name) {
-        if (!confirm("Delete "" + name + ""?")) return
+        if (!confirm("Delete '" + name + "'?")) return
         const r = await api("/api/media/" + encodeURIComponent(name), { method: "DELETE" })
         if (r.ok) { toast("Deleted: " + name, "success"); loadMedia() }
         else      { toast("Delete failed: " + r.error, "error") }

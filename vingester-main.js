@@ -1022,7 +1022,7 @@ electron.app.on("ready", async () => {
                 handler: async (req, h) => {
                     const htmlPath = path.join(__dirname, "vingester-webui.html")
                     const html = await fs.promises.readFile(htmlPath, { encoding: "utf8" })
-                    return h.response(html).type("text/html").code(200)
+                    return h.response(html).type("text/html; charset=utf-8").code(200)
                 }
             })
 
