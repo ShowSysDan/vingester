@@ -1151,7 +1151,7 @@ electron.app.on("ready", async () => {
                     payload: {
                         output:    "stream",
                         parse:     true,
-                        multipart: true,
+                        multipart: { output: "stream" },
                         maxBytes:  500 * 1024 * 1024  /*  500 MB limit  */
                     }
                 },
