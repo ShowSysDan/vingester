@@ -218,6 +218,13 @@ const app = Vue.createApp({
             this.webuiAddr    = webui.addr
             this.webuiPort    = webui.port
         })
+        electron.ipcRenderer.on("webui-error", (ev, errMsg) => {
+            this.webuiEnabled = false
+            this.messages.push({
+                time: moment().format("HH:mm:ss"),
+                text: "WebUI: Failed to start: " + errMsg
+            })
+        })
         electron.ipcRenderer.on("update-updateable", (ev, updateable) => {
             this.updateUpdateable = updateable
         })

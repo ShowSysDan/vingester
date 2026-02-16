@@ -265,7 +265,10 @@
                         Access the Web UI at:
                         </p>
                         <div class="url">
-                            <tt>http://{{ webuiAddr }}:{{ webuiPort }}/</tt>
+                            <a v-bind:href="'http://' + webuiAddr + ':' + webuiPort + '/'"
+                               v-on:click="openURL">
+                                <tt>http://{{ webuiAddr }}:{{ webuiPort }}/</tt>
+                            </a>
                         </div>
                         <p>
                         The REST API for the Web UI is available at <tt>/api/instances</tt>,
