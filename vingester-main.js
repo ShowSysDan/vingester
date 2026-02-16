@@ -1236,10 +1236,12 @@ electron.app.on("ready", async () => {
     }
     log.info("create Web UI")
     const webui = new WebUI()
-    webui.configure({
+    await webui.configure({
         enabled: store.get("webui.enabled"),
         addr:    store.get("webui.addr"),
         port:    store.get("webui.port")
+    }).catch((err) => {
+        log.error(`WebUI: failed to start: ${err.message}`)
     })
     log.info("send Web UI status and provide IPC hook for Web UI status change")
     control.webContents.send("webui", {
@@ -1251,11 +1253,17 @@ electron.app.on("ready", async () => {
         store.set("webui.enabled", cfg.enabled)
         store.set("webui.addr",    cfg.addr)
         store.set("webui.port",    cfg.port)
-        webui.configure({
-            enabled: cfg.enabled,
-            addr:    cfg.addr,
-            port:    cfg.port
-        })
+        try {
+            await webui.configure({
+                enabled: cfg.enabled,
+                addr:    cfg.addr,
+                port:    cfg.port
+            })
+        }
+        catch (err) {
+            log.error(`WebUI: configure failed: ${err.message}`)
+            control.webContents.send("webui-error", err.message)
+        }
     })
 
     /*  collect metrics  */
