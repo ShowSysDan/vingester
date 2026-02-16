@@ -719,13 +719,13 @@
         <span id="conn-label">Connecting&hellip;</span>
     </div>
     <div class="header-spacer"></div>
-    <button class="btn-add-instance" onclick="UI.openAddModal()">&#43; Add Instance</button>
+    <button class="btn-add-instance" data-action="openAddModal">&#43; Add Instance</button>
 </header>
 
 <!-- ── TABS ────────────────────────────────────────────────────── -->
 <div id="tab-bar">
-    <div class="tab-btn active" onclick="UI.switchTab('instances',this)">Instances</div>
-    <div class="tab-btn" onclick="UI.switchTab('media',this)">Media</div>
+    <div class="tab-btn active" data-action="switchTab" data-panel="instances">Instances</div>
+    <div class="tab-btn" data-action="switchTab" data-panel="media">Media</div>
 </div>
 
 <!-- ── PANELS ──────────────────────────────────────────────────── -->
@@ -735,9 +735,9 @@
     <div id="panel-instances" class="panel active">
         <div id="err-instances" class="error-banner"></div>
         <div class="toolbar">
-            <button class="btn btn-start"  onclick="UI.cmdAll('start')">&#9654; Start All</button>
-            <button class="btn btn-stop"   onclick="UI.cmdAll('stop')">&#9646;&#9646; Stop All</button>
-            <button class="btn btn-reload" onclick="UI.cmdAll('reload')">&#8635; Reload All</button>
+            <button class="btn btn-start"  data-action="cmdAll" data-cmd="start">&#9654; Start All</button>
+            <button class="btn btn-stop"   data-action="cmdAll" data-cmd="stop">&#9646;&#9646; Stop All</button>
+            <button class="btn btn-reload" data-action="cmdAll" data-cmd="reload">&#8635; Reload All</button>
         </div>
         <div id="instances-loading" class="state-msg">
             <div class="state-icon">&#8635;</div>
@@ -790,13 +790,13 @@
     <div class="modal" id="edit-modal">
         <div class="modal-header">
             <div class="modal-title" id="edit-modal-title">Instance</div>
-            <button class="modal-close" onclick="UI.closeModal()">&times;</button>
+            <button class="modal-close" data-action="closeModal">&times;</button>
         </div>
         <div class="modal-tabs">
-            <div class="modal-tab active" onclick="UI.switchModalTab('source',this)">Source</div>
-            <div class="modal-tab" onclick="UI.switchModalTab('display',this)">Display</div>
-            <div class="modal-tab" onclick="UI.switchModalTab('output',this)">Output</div>
-            <div class="modal-tab" onclick="UI.switchModalTab('behavior',this)">Behavior</div>
+            <div class="modal-tab active" data-action="switchModalTab" data-tab="source">Source</div>
+            <div class="modal-tab" data-action="switchModalTab" data-tab="display">Display</div>
+            <div class="modal-tab" data-action="switchModalTab" data-tab="output">Output</div>
+            <div class="modal-tab" data-action="switchModalTab" data-tab="behavior">Behavior</div>
         </div>
         <div class="modal-body">
 
@@ -844,7 +844,7 @@
                         <textarea class="form-control mono" id="f-if" rows="3"
                                   placeholder="One file path per line&#10;e.g. C:\Users\Me\image.png"></textarea>
                         <button class="btn btn-ghost btn-sm" style="align-self:flex-start;white-space:nowrap"
-                                onclick="UI.openMediaPicker()">&#128247; Pick Media</button>
+                                data-action="openMediaPicker">&#128247; Pick Media</button>
                     </div>
                     <div class="form-hint" id="media-dir-hint"></div>
                 </div>
@@ -1097,10 +1097,10 @@
         <div class="modal-footer">
             <div class="modal-footer-left">
                 <button class="btn btn-delete" id="btn-delete-inst" style="display:none"
-                        onclick="UI.deleteCurrentInstance()">&#10005; Delete Instance</button>
+                        data-action="deleteCurrentInstance">&#10005; Delete Instance</button>
             </div>
-            <button class="btn btn-ghost" onclick="UI.closeModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="UI.saveInstance()">Save</button>
+            <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+            <button class="btn btn-primary" data-action="saveInstance">Save</button>
         </div>
     </div><!-- .modal -->
 </div><!-- #edit-overlay -->
@@ -1110,7 +1110,7 @@
     <div id="media-picker">
         <div class="picker-head">
             <div class="picker-title">Pick from Media Library</div>
-            <button class="modal-close" onclick="UI.closeMediaPicker()">&times;</button>
+            <button class="modal-close" data-action="closeMediaPicker">&times;</button>
         </div>
         <div id="picker-grid"></div>
     </div>
@@ -1202,12 +1202,13 @@
     }
 
     function buildActions (inst) {
-        const r = inst.running
-        return (r ? '' : '<button class="btn btn-start btn-sm" onclick="UI.cmdInstance(\'' + inst.id + '\',\'start\')">&#9654; Start</button>')
-             + (r ? '<button class="btn btn-stop btn-sm"   onclick="UI.cmdInstance(\'' + inst.id + '\',\'stop\')">&#9646;&#9646; Stop</button>'  : '')
-             + (r ? '<button class="btn btn-reload btn-sm" onclick="UI.cmdInstance(\'' + inst.id + '\',\'reload\')">&#8635; Reload</button>' : '')
+        const r  = inst.running
+        const id = esc(inst.id)
+        return (r ? '' : `<button class="btn btn-start btn-sm" data-action="cmdInstance" data-id="${id}" data-cmd="start">&#9654; Start</button>`)
+             + (r ? `<button class="btn btn-stop btn-sm"   data-action="cmdInstance" data-id="${id}" data-cmd="stop">&#9646;&#9646; Stop</button>`  : '')
+             + (r ? `<button class="btn btn-reload btn-sm" data-action="cmdInstance" data-id="${id}" data-cmd="reload">&#8635; Reload</button>` : '')
              + '<span class="inst-actions-spacer"></span>'
-             + '<button class="btn btn-edit btn-sm" onclick="UI.openEditModal(\'' + inst.id + '\')">&#9998; Edit</button>'
+             + `<button class="btn btn-edit btn-sm" data-action="openEditModal" data-id="${id}">&#9998; Edit</button>`
     }
 
     function createCard (inst) {
@@ -1720,7 +1721,7 @@
                 <div class="media-info">
                     <span class="media-name" title="${esc(f.name)}">${esc(f.name)}</span>
                     <span class="media-size">${fmtBytes(f.size)}</span>
-                    <button class="media-delete" title="Delete" onclick="UI.deleteMedia('${esc(f.name)}')">&#10005;</button>
+                    <button class="media-delete" title="Delete" data-action="deleteMedia" data-name="${esc(f.name)}">&#10005;</button>
                 </div>`
             grid.appendChild(item)
         }
@@ -1765,6 +1766,29 @@
         setTimeout(() => { hide(progress); bar.style.width = "0%" }, 1200)
         if (done > 0) loadMedia()
     }
+
+    /* ──────────────────────────────────────────────────────────────
+       EVENT DELEGATION (replaces all onclick="UI.xxx()" handlers)
+    ────────────────────────────────────────────────────────────── */
+    document.addEventListener("click", function (e) {
+        const btn = e.target.closest("[data-action]")
+        if (!btn) return
+        const action = btn.dataset.action
+        switch (action) {
+            case "openAddModal":          openAddModal(); break
+            case "closeModal":            closeModal(); break
+            case "saveInstance":          saveInstance(); break
+            case "deleteCurrentInstance": deleteCurrentInstance(); break
+            case "openMediaPicker":       openMediaPicker(); break
+            case "closeMediaPicker":      closeMediaPicker(); break
+            case "switchTab":             switchTab(btn.dataset.panel, btn); break
+            case "switchModalTab":        switchModalTab(btn.dataset.tab, btn); break
+            case "cmdInstance":           cmdInstance(btn.dataset.id, btn.dataset.cmd); break
+            case "cmdAll":                cmdAll(btn.dataset.cmd); break
+            case "openEditModal":         openEditModal(btn.dataset.id); break
+            case "deleteMedia":           deleteMedia(btn.dataset.name); break
+        }
+    })
 
     /* ──────────────────────────────────────────────────────────────
        CLOSE OVERLAYS ON BACKGROUND CLICK
