@@ -104,7 +104,7 @@ let initiallyMinimized = false
 if (electron.app.commandLine.hasSwitch("minimize"))
     initiallyMinimized = true
 
-/*  support browser instances auto-start  */
+/*  support browser instances global auto-start (all instances)  */
 let autostart = false
 if (electron.app.commandLine.hasSwitch("autostart"))
     autostart = true
@@ -155,6 +155,11 @@ electron.app.on("ready", async () => {
         await fs.promises.copyFile(iname, ename)
     }
     await fs.promises.unlink(path.join(cfgDir, "Sample-OBSN.yaml")).catch(() => true)
+
+    /*  ensure media library directory exists  */
+    const mediaDir = path.join(userData, "Media")
+    if (!(await pathExists(mediaDir)))
+        await mkdirp(mediaDir, { mode: 0o755 })
 
     /*  determine main window position and size  */
     log.info("loading persistant settings")
@@ -327,48 +332,61 @@ electron.app.on("ready", async () => {
 
     /*  provide IPC hooks for store access  */
     log.info("provide IPC hooks for control user interface")
+    /*
+     *  Field definitions - each field has:
+     *    iname: internal short name (single char or two chars) used in storage
+     *    itype: internal type used in storage
+     *    def:   default value
+     *    etype: exported type (for YAML)
+     *    ename: external long name used in YAML export/import
+     *
+     *  NOTE: Output1 (frameless window) fields (D, x, y, d, p, A) have been removed.
+     *  Old YAML configs with those fields will have them silently ignored on import
+     *  for full backward compatibility.
+     */
     const fields = [
-        { iname: "t", itype: "string",  def: "",            etype: "string",  ename: "BrowserTitle" },
-        { iname: "i", itype: "string",  def: "",            etype: "string",  ename: "BrowserInfo" },
-        { iname: "w", itype: "string",  def: "1280",        etype: "number",  ename: "BrowserWidth" },
-        { iname: "h", itype: "string",  def: "720",         etype: "number",  ename: "BrowserHeight" },
-        { iname: "c", itype: "string",  def: "transparent", etype: "string",  ename: "BrowserColor" },
-        { iname: "z", itype: "string",  def: "1.0",         etype: "number",  ename: "BrowserZoom" },
-        { iname: "H", itype: "boolean", def: false,         etype: "boolean", ename: "BrowserTrust" },
-        { iname: "I", itype: "boolean", def: false,         etype: "boolean", ename: "BrowserNodeAPI" },
-        { iname: "B", itype: "boolean", def: false,         etype: "boolean", ename: "BrowserOBSDOM" },
-        { iname: "S", itype: "boolean", def: false,         etype: "boolean", ename: "BrowserPersist" },
-        { iname: "u", itype: "string",  def: "",            etype: "string",  ename: "InputURL" },
-        { iname: "k", itype: "string",  def: "0",           etype: "number",  ename: "PatchDelay" },
-        { iname: "j", itype: "string",  def: "",            etype: "string",  ename: "PatchFrame" },
-        { iname: "g", itype: "string",  def: "inline",      etype: "string",  ename: "PatchStyleType" },
-        { iname: "q", itype: "string",  def: "",            etype: "string",  ename: "PatchStyleCode" },
-        { iname: "G", itype: "string",  def: "inline",      etype: "string",  ename: "PatchScriptType" },
-        { iname: "Q", itype: "string",  def: "",            etype: "string",  ename: "PatchScriptCode" },
-        { iname: "D", itype: "boolean", def: true,          etype: "boolean", ename: "Output1Enabled" },
-        { iname: "x", itype: "string",  def: "0",           etype: "number",  ename: "Output1VideoPositionX" },
-        { iname: "y", itype: "string",  def: "0",           etype: "number",  ename: "Output1VideoPositionY" },
-        { iname: "d", itype: "number",  def: 0,             etype: "number",  ename: "Output1VideoDisplay" },
-        { iname: "p", itype: "boolean", def: false,         etype: "boolean", ename: "Output1VideoPinTop" },
-        { iname: "A", itype: "string",  def: "",            etype: "string",  ename: "Output1AudioDevice" },
-        { iname: "N", itype: "boolean", def: false,         etype: "boolean", ename: "Output2Enabled" },
-        { iname: "f", itype: "string",  def: "30",          etype: "number",  ename: "Output2VideoFrameRate" },
-        { iname: "a", itype: "boolean", def: false,         etype: "boolean", ename: "Output2VideoAdaptive" },
-        { iname: "O", itype: "string",  def: "0",           etype: "number",  ename: "Output2VideoDelay" },
-        { iname: "r", itype: "number",  def: 48000,         etype: "number",  ename: "Output2AudioSampleRate" },
-        { iname: "C", itype: "string",  def: "2",           etype: "number",  ename: "Output2AudioChannels" },
-        { iname: "o", itype: "string",  def: "0",           etype: "number",  ename: "Output2AudioDelay" },
-        { iname: "n", itype: "boolean", def: true,          etype: "boolean", ename: "Output2SinkNDIEnabled" },
-        { iname: "v", itype: "boolean", def: true,          etype: "boolean", ename: "Output2SinkNDIAlpha" },
-        { iname: "l", itype: "boolean", def: false,         etype: "boolean", ename: "Output2SinkNDITallyReload" },
-        { iname: "m", itype: "boolean", def: false,         etype: "boolean", ename: "Output2SinkFFmpegEnabled" },
-        { iname: "R", itype: "string",  def: "vbr",         etype: "string",  ename: "Output2SinkFFmpegMode" },
-        { iname: "F", itype: "string",  def: "matroska",    etype: "string",  ename: "Output2SinkFFmpegFormat" },
-        { iname: "M", itype: "string",  def: "",            etype: "string",  ename: "Output2SinkFFmpegOptions" },
-        { iname: "P", itype: "boolean", def: false,         etype: "boolean", ename: "PreviewEnabled" },
-        { iname: "T", itype: "boolean", def: false,         etype: "boolean", ename: "ConsoleEnabled" },
-        { iname: "E", itype: "boolean", def: false,         etype: "boolean", ename: "DevToolsEnabled" },
-        { iname: "_", itype: "boolean", def: false,         etype: "boolean", ename: "Collapsed" }
+        { iname: "t",  itype: "string",  def: "",            etype: "string",  ename: "BrowserTitle" },
+        { iname: "i",  itype: "string",  def: "",            etype: "string",  ename: "BrowserInfo" },
+        { iname: "w",  itype: "string",  def: "1280",        etype: "number",  ename: "BrowserWidth" },
+        { iname: "h",  itype: "string",  def: "720",         etype: "number",  ename: "BrowserHeight" },
+        { iname: "c",  itype: "string",  def: "transparent", etype: "string",  ename: "BrowserColor" },
+        { iname: "z",  itype: "string",  def: "1.0",         etype: "number",  ename: "BrowserZoom" },
+        { iname: "H",  itype: "boolean", def: false,         etype: "boolean", ename: "BrowserTrust" },
+        { iname: "I",  itype: "boolean", def: false,         etype: "boolean", ename: "BrowserNodeAPI" },
+        { iname: "B",  itype: "boolean", def: false,         etype: "boolean", ename: "BrowserOBSDOM" },
+        { iname: "S",  itype: "boolean", def: false,         etype: "boolean", ename: "BrowserPersist" },
+        { iname: "ar", itype: "boolean", def: false,         etype: "boolean", ename: "AutoRefreshEnabled" },
+        { iname: "ai", itype: "string",  def: "300",         etype: "number",  ename: "AutoRefreshInterval" },
+        { iname: "as", itype: "boolean", def: false,         etype: "boolean", ename: "InstanceAutoStart" },
+        { iname: "it", itype: "string",  def: "url",         etype: "string",  ename: "InputType" },
+        { iname: "u",  itype: "string",  def: "",            etype: "string",  ename: "InputURL" },
+        { iname: "if", itype: "string",  def: "",            etype: "string",  ename: "InputFiles" },
+        { iname: "si", itype: "string",  def: "5",           etype: "number",  ename: "SlideshowInterval" },
+        { iname: "sf", itype: "string",  def: "1",           etype: "number",  ename: "SlideshowFade" },
+        { iname: "k",  itype: "string",  def: "0",           etype: "number",  ename: "PatchDelay" },
+        { iname: "j",  itype: "string",  def: "",            etype: "string",  ename: "PatchFrame" },
+        { iname: "g",  itype: "string",  def: "inline",      etype: "string",  ename: "PatchStyleType" },
+        { iname: "q",  itype: "string",  def: "",            etype: "string",  ename: "PatchStyleCode" },
+        { iname: "G",  itype: "string",  def: "inline",      etype: "string",  ename: "PatchScriptType" },
+        { iname: "Q",  itype: "string",  def: "",            etype: "string",  ename: "PatchScriptCode" },
+        { iname: "N",  itype: "boolean", def: false,         etype: "boolean", ename: "Output2Enabled" },
+        { iname: "f",  itype: "string",  def: "30",          etype: "number",  ename: "Output2VideoFrameRate" },
+        { iname: "a",  itype: "boolean", def: false,         etype: "boolean", ename: "Output2VideoAdaptive" },
+        { iname: "O",  itype: "string",  def: "0",           etype: "number",  ename: "Output2VideoDelay" },
+        { iname: "r",  itype: "number",  def: 48000,         etype: "number",  ename: "Output2AudioSampleRate" },
+        { iname: "C",  itype: "string",  def: "2",           etype: "number",  ename: "Output2AudioChannels" },
+        { iname: "o",  itype: "string",  def: "0",           etype: "number",  ename: "Output2AudioDelay" },
+        { iname: "n",  itype: "boolean", def: true,          etype: "boolean", ename: "Output2SinkNDIEnabled" },
+        { iname: "v",  itype: "boolean", def: true,          etype: "boolean", ename: "Output2SinkNDIAlpha" },
+        { iname: "l",  itype: "boolean", def: false,         etype: "boolean", ename: "Output2SinkNDITallyReload" },
+        { iname: "m",  itype: "boolean", def: false,         etype: "boolean", ename: "Output2SinkFFmpegEnabled" },
+        { iname: "R",  itype: "string",  def: "vbr",         etype: "string",  ename: "Output2SinkFFmpegMode" },
+        { iname: "F",  itype: "string",  def: "matroska",    etype: "string",  ename: "Output2SinkFFmpegFormat" },
+        { iname: "M",  itype: "string",  def: "",            etype: "string",  ename: "Output2SinkFFmpegOptions" },
+        { iname: "P",  itype: "boolean", def: false,         etype: "boolean", ename: "PreviewEnabled" },
+        { iname: "T",  itype: "boolean", def: false,         etype: "boolean", ename: "ConsoleEnabled" },
+        { iname: "E",  itype: "boolean", def: false,         etype: "boolean", ename: "DevToolsEnabled" },
+        { iname: "_",  itype: "boolean", def: false,         etype: "boolean", ename: "Collapsed" }
     ]
     const sanitizeConfig = (browser) => {
         let changed = 0
@@ -488,6 +506,16 @@ electron.app.on("ready", async () => {
                 delete browser[field.ename]
                 browser[field.iname] = value
             }
+            /*  silently discard legacy Output1 fields from old config files
+                (Output1Enabled/D, Output1VideoPositionX/x, Output1VideoPositionY/y,
+                 Output1VideoDisplay/d, Output1VideoPinTop/p, Output1AudioDevice/A)  */
+            const legacyFields = [
+                "Output1Enabled", "Output1VideoPositionX", "Output1VideoPositionY",
+                "Output1VideoDisplay", "Output1VideoPinTop", "Output1AudioDevice",
+                "D", "x", "y", "d", "p", "A"
+            ]
+            for (const lf of legacyFields)
+                delete browser[lf]
             sanitizeConfig(browser)
         }
         saveConfigs(browsers)
@@ -540,6 +568,29 @@ electron.app.on("ready", async () => {
                 return null
             if (result.filePaths && result.filePaths.length === 1)
                 return result.filePaths[0]
+            return null
+        }).catch(() => {
+            return null
+        })
+    })
+
+    /*  handle media file selection (images/videos, multi-select)  */
+    electron.ipcMain.handle("select-media-files", async (ev, multiSelect) => {
+        const imageExts = [ "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg" ]
+        const videoExts = [ "mp4", "webm", "ogg", "mov", "mkv", "avi" ]
+        return electron.dialog.showOpenDialog({
+            title:       "Choose Media File(s)",
+            properties:  multiSelect ? [ "openFile", "multiSelections" ] : [ "openFile" ],
+            filters:     [
+                { name: "Image Files",  extensions: imageExts },
+                { name: "Video Files",  extensions: videoExts },
+                { name: "All Media",    extensions: [ ...imageExts, ...videoExts ] }
+            ]
+        }).then(async (result) => {
+            if (result.canceled)
+                return null
+            if (result.filePaths && result.filePaths.length > 0)
+                return result.filePaths
             return null
         }).catch(() => {
             return null
@@ -605,7 +656,7 @@ electron.app.on("ready", async () => {
         }
         else if (action === "add") {
             /*  add browser configuration  */
-            browsers[id] = new Browser(log, id, cfg, control, FFmpeg.binary)
+            browsers[id] = new Browser(log, id, cfg, control, FFmpeg.binary, mediaDir)
         }
         else if (action === "mod") {
             /*  modify browser configuration  */
@@ -710,12 +761,26 @@ electron.app.on("ready", async () => {
             control.focus()
         }
 
-        /*  optionally auto-start browser instances
-            (requires some delay to give browser instances a chance to be loaded)  */
+        /*  auto-start browser instances:
+            1. --autostart flag starts all instances
+            2. InstanceAutoStart (as) per-instance flag starts specific instances  */
         if (autostart) {
             setTimeout(() => {
-                log.info("auto-start all browser instances")
+                log.info("auto-start all browser instances (--autostart flag)")
                 controlBrowser("start-all")
+            }, 2000)
+        }
+        else {
+            /*  per-instance auto-start  */
+            setTimeout(() => {
+                for (const id of Object.keys(browsers)) {
+                    if (browsers[id].cfg.as && !browsers[id].running() && browsers[id].valid()) {
+                        log.info(`auto-start browser instance (InstanceAutoStart): ${browsers[id].cfg.t}`)
+                        controlBrowser("start", id).catch((err) => {
+                            log.warn(`auto-start failed for ${id}: ${err.message}`)
+                        })
+                    }
+                }
             }, 2000)
         }
     })
@@ -766,10 +831,13 @@ electron.app.on("ready", async () => {
         electron.app.exit()
     })
 
-    /*  toggle API  */
+    /*  toggle REST API  */
     const API = class {
         constructor () {
-            this.hapi = null
+            this.hapi    = null
+            this.enabled = false
+            this.addr    = "127.0.0.1"
+            this.port    = "7211"
         }
         async configure (cfg) {
             this.enabled = cfg.enabled ?? false
@@ -904,6 +972,292 @@ electron.app.on("ready", async () => {
         })
     })
 
+    /*  Web UI server - serves the web dashboard and media files  */
+    const WebUI = class {
+        constructor () {
+            this.hapi    = null
+            this.enabled = false
+            this.addr    = "127.0.0.1"
+            this.port    = "7212"
+        }
+        async configure (cfg) {
+            this.enabled = cfg.enabled ?? false
+            this.addr    = cfg.addr    ?? "127.0.0.1"
+            this.port    = cfg.port    ?? "7212"
+            if (this.enabled && !this.hapi)
+                await this.start()
+            else if (!this.enabled && this.hapi)
+                await this.stop()
+        }
+        async start () {
+            log.info("start Web UI")
+            this.hapi = new HAPI.server({
+                host:  this.addr,
+                port:  parseInt(this.port),
+                debug: false,
+                routes: {
+                    cors: {
+                        origin: [ "*" ]
+                    }
+                }
+            })
+            await this.hapi.register({
+                plugin: HAPIHeader,
+                options: { Server: `${pkg.name}/${pkg.version}` }
+            })
+            this.hapi.events.on("log", (ev, tags) => {
+                if (tags.error) {
+                    const err = ev.error
+                    if (err instanceof Error)
+                        log.error(`WebUI: log: ${err.message}`)
+                    else
+                        log.error(`WebUI: log: ${err}`)
+                }
+            })
+
+            /*  serve the web UI dashboard  */
+            this.hapi.route({
+                method:  "GET",
+                path:    "/",
+                handler: async (req, h) => {
+                    const htmlPath = path.join(__dirname, "vingester-webui.html")
+                    const html = await fs.promises.readFile(htmlPath, { encoding: "utf8" })
+                    return h.response(html).type("text/html").code(200)
+                }
+            })
+
+            /*  REST API: list all instances  */
+            this.hapi.route({
+                method:  "GET",
+                path:    "/api/instances",
+                handler: async (req, h) => {
+                    const result = []
+                    for (const id of Object.keys(browsers)) {
+                        const b = browsers[id]
+                        result.push({
+                            id,
+                            title:   b.cfg.t,
+                            info:    b.cfg.i,
+                            url:     b.cfg.u,
+                            inputType: b.cfg.it,
+                            running: b.running(),
+                            width:   b.cfg.w,
+                            height:  b.cfg.h,
+                            fps:     b.cfg.f,
+                            ndi:     b.cfg.n,
+                            autoRefresh: b.cfg.ar,
+                            autoRefreshInterval: b.cfg.ai,
+                            autoStart: b.cfg.as
+                        })
+                    }
+                    return h.response(JSON.stringify(result)).type("application/json").code(200)
+                }
+            })
+
+            /*  REST API: instance control  */
+            this.hapi.route({
+                method:  [ "GET", "POST" ],
+                path:    "/api/instances/{id}/{command}",
+                handler: async (req, h) => {
+                    const { id, command } = req.params
+                    const validCommands = [ "start", "stop", "reload", "clear" ]
+                    if (!validCommands.includes(command))
+                        throw new Boom.badRequest("invalid command")
+                    if (!browsers[id])
+                        throw new Boom.notFound("instance not found")
+                    await controlBrowser(command, id)
+                        .catch((err) => { throw new Boom.expectationFailed(err.message) })
+                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
+                }
+            })
+
+            /*  REST API: start/stop/reload all  */
+            this.hapi.route({
+                method:  [ "GET", "POST" ],
+                path:    "/api/all/{command}",
+                handler: async (req, h) => {
+                    const { command } = req.params
+                    const map = { start: "start-all", stop: "stop-all", reload: "reload-all" }
+                    if (!map[command])
+                        throw new Boom.badRequest("invalid command")
+                    await controlBrowser(map[command])
+                        .catch((err) => { throw new Boom.expectationFailed(err.message) })
+                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
+                }
+            })
+
+            /*  serve media files from the media directory  */
+            this.hapi.route({
+                method:  "GET",
+                path:    "/media/{filename*}",
+                handler: async (req, h) => {
+                    const filename = req.params.filename
+                    /*  prevent directory traversal  */
+                    const safeName = path.basename(filename)
+                    const filePath = path.join(mediaDir, safeName)
+                    try {
+                        const data = await fs.promises.readFile(filePath)
+                        const ext = path.extname(safeName).toLowerCase().slice(1)
+                        const mimeMap = {
+                            png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+                            gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+                            svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm",
+                            ogg: "video/ogg", mov: "video/quicktime"
+                        }
+                        const mime = mimeMap[ext] || "application/octet-stream"
+                        return h.response(data).type(mime).code(200)
+                    }
+                    catch (err) {
+                        throw new Boom.notFound("media file not found")
+                    }
+                }
+            })
+
+            /*  list media library  */
+            this.hapi.route({
+                method:  "GET",
+                path:    "/api/media",
+                handler: async (req, h) => {
+                    const imageExts = new Set([ ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg" ])
+                    const videoExts = new Set([ ".mp4", ".webm", ".ogg", ".mov", ".mkv", ".avi" ])
+                    let files = []
+                    try {
+                        const entries = await fs.promises.readdir(mediaDir)
+                        for (const entry of entries) {
+                            const ext = path.extname(entry).toLowerCase()
+                            if (imageExts.has(ext) || videoExts.has(ext)) {
+                                const stat = await fs.promises.stat(path.join(mediaDir, entry))
+                                files.push({
+                                    name: entry,
+                                    type: imageExts.has(ext) ? "image" : "video",
+                                    size: stat.size,
+                                    url:  `/media/${entry}`
+                                })
+                            }
+                        }
+                    }
+                    catch (err) {
+                        log.warn(`WebUI: could not read media dir: ${err.message}`)
+                    }
+                    return h.response(JSON.stringify(files)).type("application/json").code(200)
+                }
+            })
+
+            /*  upload media files  */
+            this.hapi.route({
+                method:  "POST",
+                path:    "/api/media/upload",
+                options: {
+                    payload: {
+                        output:    "stream",
+                        parse:     true,
+                        multipart: true,
+                        maxBytes:  500 * 1024 * 1024  /*  500 MB limit  */
+                    }
+                },
+                handler: async (req, h) => {
+                    const allowedExts = new Set([
+                        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
+                        ".mp4", ".webm", ".ogg", ".mov"
+                    ])
+                    const payload = req.payload
+                    const fileField = payload.file
+                    if (!fileField)
+                        throw new Boom.badRequest("no file in upload")
+
+                    /*  determine filename from headers  */
+                    const headers = fileField.hapi?.headers ?? {}
+                    const contentDisposition = headers["content-disposition"] || ""
+                    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
+                    const originalName = filenameMatch ? filenameMatch[1] : "upload"
+                    const ext = path.extname(originalName).toLowerCase()
+
+                    if (!allowedExts.has(ext))
+                        throw new Boom.unsupportedMediaType(
+                            `File type '${ext}' not allowed. Allowed: images and videos only.`)
+
+                    /*  sanitize filename  */
+                    const safeName = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, "_")
+                    const destPath = path.join(mediaDir, safeName)
+
+                    /*  write the stream to disk  */
+                    await new Promise((resolve, reject) => {
+                        const writeStream = fs.createWriteStream(destPath)
+                        fileField.pipe(writeStream)
+                        writeStream.on("finish", resolve)
+                        writeStream.on("error", reject)
+                        fileField.on("error", reject)
+                    })
+
+                    log.info(`WebUI: uploaded media file: ${safeName}`)
+                    return h.response(JSON.stringify({
+                        ok: true,
+                        name: safeName,
+                        url:  `/media/${safeName}`
+                    })).type("application/json").code(200)
+                }
+            })
+
+            /*  delete media file  */
+            this.hapi.route({
+                method:  "DELETE",
+                path:    "/api/media/{filename}",
+                handler: async (req, h) => {
+                    const safeName = path.basename(req.params.filename)
+                    const filePath = path.join(mediaDir, safeName)
+                    try {
+                        await fs.promises.unlink(filePath)
+                        log.info(`WebUI: deleted media file: ${safeName}`)
+                        return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
+                    }
+                    catch (err) {
+                        throw new Boom.notFound("media file not found")
+                    }
+                }
+            })
+
+            /*  catch-all  */
+            this.hapi.route({
+                method:   [ "GET", "POST" ],
+                path:     "/{any*}",
+                handler: async (req, h) => {
+                    throw new Boom.notFound("resource not found")
+                }
+            })
+
+            await this.hapi.start()
+            log.info(`Web UI available at http://${this.addr}:${this.port}/`)
+        }
+        async stop () {
+            log.info("stop Web UI")
+            await this.hapi.stop().catch(() => {})
+            this.hapi = null
+        }
+    }
+    log.info("create Web UI")
+    const webui = new WebUI()
+    webui.configure({
+        enabled: store.get("webui.enabled"),
+        addr:    store.get("webui.addr"),
+        port:    store.get("webui.port")
+    })
+    log.info("send Web UI status and provide IPC hook for Web UI status change")
+    control.webContents.send("webui", {
+        enabled: webui.enabled,
+        addr:    webui.addr,
+        port:    webui.port
+    })
+    electron.ipcMain.handle("webui", async (ev, cfg) => {
+        store.set("webui.enabled", cfg.enabled)
+        store.set("webui.addr",    cfg.addr)
+        store.set("webui.port",    cfg.port)
+        webui.configure({
+            enabled: cfg.enabled,
+            addr:    cfg.addr,
+            port:    cfg.port
+        })
+    })
+
     /*  collect metrics  */
     log.info("start usage gathering timer")
     const usages = new util.WeightedAverage(20, 5)
@@ -952,8 +1306,12 @@ electron.app.on("ready", async () => {
         await controlBrowser("stop-all", null)
 
         /*  stop API  */
-        if (API.started)
-            await API.stop()
+        if (api.hapi)
+            await api.stop()
+
+        /*  stop Web UI  */
+        if (webui.hapi)
+            await webui.stop()
 
         /*  optionally auto-export configuration  */
         if (configFile !== null) {
@@ -992,4 +1350,3 @@ electron.app.on("ready", async () => {
 
     log.info("up and running")
 })
-

@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<!--
+**  Vingester Web UI Dashboard
+**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Vingester Web UI</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        header {
+            background: #16213e;
+            border-bottom: 2px solid #0f3460;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        header h1 {
+            font-size: 1.4rem;
+            color: #e94560;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        header .subtitle {
+            font-size: 0.75rem;
+            color: #888;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        header .spacer { flex: 1; }
+        header .refresh-btn {
+            background: #0f3460;
+            border: 1px solid #e94560;
+            color: #e94560;
+            padding: 6px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+        header .refresh-btn:hover { background: #e94560; color: #fff; }
+        .tabs {
+            display: flex;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+            padding: 0 24px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: #888;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab:hover { color: #e0e0e0; }
+        .tab.active { color: #e94560; border-bottom-color: #e94560; }
+        .container { padding: 24px; max-width: 1200px; margin: 0 auto; }
+        .panel { display: none; }
+        .panel.active { display: block; }
+        .section-title {
+            font-size: 0.75rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #0f3460;
+        }
+        .global-actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+        .btn {
+            padding: 8px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            border: 1px solid;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-start   { border-color: #27ae60; color: #27ae60; background: transparent; }
+        .btn-start:hover  { background: #27ae60; color: #fff; }
+        .btn-stop    { border-color: #e74c3c; color: #e74c3c; background: transparent; }
+        .btn-stop:hover   { background: #e74c3c; color: #fff; }
+        .btn-reload  { border-color: #3498db; color: #3498db; background: transparent; }
+        .btn-reload:hover { background: #3498db; color: #fff; }
+        .btn-delete  { border-color: #e74c3c; color: #e74c3c; background: transparent; }
+        .btn-delete:hover { background: #e74c3c; color: #fff; }
+        .btn-upload  { border-color: #9b59b6; color: #9b59b6; background: transparent; }
+        .btn-upload:hover { background: #9b59b6; color: #fff; }
+        .btn:disabled, .btn.disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+        .instances-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+        .instance-card {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 16px;
+            position: relative;
+            transition: border-color 0.2s;
+        }
+        .instance-card.running  { border-color: #27ae60; }
+        .instance-card.stopped  { border-color: #e74c3c; }
+        .instance-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        .instance-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #e74c3c;
+            flex-shrink: 0;
+        }
+        .instance-status.running { background: #27ae60; animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .instance-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #e0e0e0;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .instance-info {
+            font-size: 0.75rem;
+            color: #888;
+            margin-bottom: 10px;
+        }
+        .instance-url {
+            font-size: 0.7rem;
+            color: #3498db;
+            word-break: break-all;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+        .instance-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .badge {
+            font-size: 0.65rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: #0f3460;
+            color: #888;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .badge.ndi     { background: #1a4a2e; color: #27ae60; }
+        .badge.autoref { background: #1a2a4e; color: #3498db; }
+        .badge.autostr { background: #2a1a4e; color: #9b59b6; }
+        .instance-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .instance-actions .btn { padding: 5px 12px; font-size: 0.75rem; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            font-size: 0.9rem;
+        }
+        .error-msg {
+            background: #2d1515;
+            border: 1px solid #e74c3c;
+            border-radius: 6px;
+            padding: 12px 16px;
+            color: #e74c3c;
+            margin-bottom: 16px;
+            font-size: 0.85rem;
+        }
+        .empty-msg {
+            text-align: center;
+            padding: 40px;
+            color: #555;
+            font-size: 0.9rem;
+        }
+        /* Media Manager */
+        .upload-zone {
+            border: 2px dashed #0f3460;
+            border-radius: 8px;
+            padding: 32px;
+            text-align: center;
+            margin-bottom: 24px;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #9b59b6; }
+        .upload-zone input[type=file] { display: none; }
+        .upload-zone .upload-icon { font-size: 2rem; color: #9b59b6; margin-bottom: 8px; }
+        .upload-zone .upload-text { color: #888; font-size: 0.9rem; }
+        .upload-zone .upload-hint { color: #555; font-size: 0.75rem; margin-top: 4px; }
+        .upload-progress {
+            background: #0f3460;
+            border-radius: 4px;
+            height: 4px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        .upload-progress-bar {
+            height: 100%;
+            background: #9b59b6;
+            border-radius: 4px;
+            width: 0;
+            transition: width 0.3s;
+        }
+        .media-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        .media-item {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: border-color 0.2s;
+        }
+        .media-item:hover { border-color: #9b59b6; }
+        .media-thumb {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            display: block;
+            background: #0f3460;
+        }
+        .media-thumb-video {
+            width: 100%;
+            height: 120px;
+            object-fit: cover;
+            display: block;
+            background: #0f3460;
+        }
+        .media-info {
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .media-name {
+            flex: 1;
+            font-size: 0.75rem;
+            color: #e0e0e0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .media-size { font-size: 0.65rem; color: #555; }
+        .media-delete {
+            background: none;
+            border: none;
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 0.85rem;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .media-delete:hover { background: #2d1515; }
+        /* Toast */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .toast {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 6px;
+            padding: 10px 16px;
+            font-size: 0.85rem;
+            color: #e0e0e0;
+            max-width: 320px;
+            animation: slideIn 0.3s ease;
+        }
+        .toast.success { border-color: #27ae60; color: #27ae60; }
+        .toast.error   { border-color: #e74c3c; color: #e74c3c; }
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to   { transform: translateX(0);   opacity: 1; }
+        }
+        .status-bar {
+            background: #16213e;
+            border-top: 1px solid #0f3460;
+            padding: 6px 24px;
+            font-size: 0.7rem;
+            color: #555;
+            display: flex;
+            gap: 16px;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+        .status-bar span { color: #888; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>&#9658; Vingester</h1>
+        <div class="subtitle">Web UI Dashboard</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="refresh-btn" onclick="refreshAll()">&#8635; Refresh</button>
+</header>
+
+<div class="tabs">
+    <div class="tab active" data-panel="instances" onclick="switchTab('instances', this)">Instances</div>
+    <div class="tab" data-panel="media" onclick="switchTab('media', this)">Media Manager</div>
+</div>
+
+<div class="container">
+    <div id="panel-instances" class="panel active">
+        <div id="error-instances" class="error-msg" style="display:none"></div>
+        <div class="section-title">Global Controls</div>
+        <div class="global-actions">
+            <button class="btn btn-start"  onclick="cmdAll('start')">&#9654; Start All</button>
+            <button class="btn btn-stop"   onclick="cmdAll('stop')">&#9646;&#9646; Stop All</button>
+            <button class="btn btn-reload" onclick="cmdAll('reload')">&#8635; Reload All</button>
+        </div>
+        <div class="section-title">Browser Instances</div>
+        <div id="instances-loading" class="loading">Loading instances&hellip;</div>
+        <div id="instances-empty"  class="empty-msg" style="display:none">No browser instances configured. Use the Vingester desktop app to add instances.</div>
+        <div id="instances-grid"   class="instances-grid" style="display:none"></div>
+    </div>
+
+    <div id="panel-media" class="panel">
+        <div id="error-media" class="error-msg" style="display:none"></div>
+        <div class="section-title">Upload Media</div>
+        <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()"
+             ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+            <input type="file" id="file-input" multiple accept="image/*,video/*" onchange="uploadFiles(this.files)"/>
+            <div class="upload-icon">&#8679;</div>
+            <div class="upload-text">Click to upload or drag &amp; drop files here</div>
+            <div class="upload-hint">Allowed: PNG, JPG, GIF, WEBP, BMP, SVG, MP4, WEBM, OGG, MOV (max 500 MB)</div>
+        </div>
+        <div class="upload-progress" id="upload-progress">
+            <div class="upload-progress-bar" id="upload-progress-bar"></div>
+        </div>
+        <div class="section-title">Media Library</div>
+        <div id="media-loading" class="loading">Loading media&hellip;</div>
+        <div id="media-empty"  class="empty-msg" style="display:none">No media files uploaded yet.</div>
+        <div id="media-grid"   class="media-grid" style="display:none"></div>
+    </div>
+</div>
+
+<div class="status-bar">
+    <span id="status-count">0 instances</span>
+    <span id="status-running">0 running</span>
+    <span id="status-time"></span>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+(function () {
+    const BASE = window.location.origin
+
+    function switchTab (panel, el) {
+        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"))
+        document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"))
+        el.classList.add("active")
+        document.getElementById("panel-" + panel).classList.add("active")
+        if (panel === "media") loadMedia()
+        if (panel === "instances") loadInstances()
+    }
+    window.switchTab = switchTab
+
+    function toast (msg, type) {
+        const c = document.getElementById("toast-container")
+        const t = document.createElement("div")
+        t.className = "toast " + (type || "")
+        t.textContent = msg
+        c.appendChild(t)
+        setTimeout(() => { t.remove() }, 3500)
+    }
+
+    async function apiFetch (path, options) {
+        try {
+            const res = await fetch(BASE + path, options || {})
+            const text = await res.text()
+            let data
+            try { data = JSON.parse(text) } catch (e) { data = text }
+            if (!res.ok) throw new Error(data?.message || data || "HTTP " + res.status)
+            return { ok: true, data }
+        } catch (err) {
+            return { ok: false, error: err.message }
+        }
+    }
+
+    function formatSize (bytes) {
+        if (bytes < 1024)        return bytes + " B"
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB"
+        return (bytes / 1024 / 1024).toFixed(1) + " MB"
+    }
+
+    /* ---- INSTANCES ---- */
+
+    async function loadInstances () {
+        const grid    = document.getElementById("instances-grid")
+        const loading = document.getElementById("instances-loading")
+        const empty   = document.getElementById("instances-empty")
+        const errBox  = document.getElementById("error-instances")
+
+        loading.style.display = "block"
+        grid.style.display    = "none"
+        empty.style.display   = "none"
+        errBox.style.display  = "none"
+
+        const result = await apiFetch("/api/instances")
+        loading.style.display = "none"
+
+        if (!result.ok) {
+            errBox.textContent = "Failed to load instances: " + result.error
+            errBox.style.display = "block"
+            return
+        }
+
+        const instances = result.data
+        const running   = instances.filter(i => i.running).length
+
+        document.getElementById("status-count").textContent   = instances.length + " instance" + (instances.length !== 1 ? "s" : "")
+        document.getElementById("status-running").textContent = running + " running"
+        document.getElementById("status-time").textContent    = "Updated: " + new Date().toLocaleTimeString()
+
+        if (instances.length === 0) {
+            empty.style.display = "block"
+            return
+        }
+
+        grid.innerHTML = ""
+        for (const inst of instances) {
+            const card = document.createElement("div")
+            card.className = "instance-card " + (inst.running ? "running" : "stopped")
+            card.dataset.id = inst.id
+
+            const urlDisplay = inst.inputType !== "url"
+                ? "(" + inst.inputType + ")"
+                : (inst.url || "(no URL)")
+
+            const badges = []
+            if (inst.ndi)         badges.push('<span class="badge ndi">NDI</span>')
+            if (inst.autoRefresh) badges.push('<span class="badge autoref">Auto-Refresh ' + inst.autoRefreshInterval + 's</span>')
+            if (inst.autoStart)   badges.push('<span class="badge autostr">Auto-Start</span>')
+
+            card.innerHTML = `
+                <div class="instance-header">
+                    <div class="instance-status ${inst.running ? "running" : ""}"></div>
+                    <div class="instance-title">${escHtml(inst.title)}</div>
+                </div>
+                ${inst.info ? '<div class="instance-info">' + escHtml(inst.info) + '</div>' : ''}
+                <div class="instance-url">${escHtml(urlDisplay)}</div>
+                <div class="instance-meta">
+                    <span class="badge">${inst.width}x${inst.height}</span>
+                    <span class="badge">${inst.fps} fps</span>
+                    ${badges.join("")}
+                </div>
+                <div class="instance-actions">
+                    ${!inst.running ? '<button class="btn btn-start"  onclick="cmdInstance(\'' + inst.id + '\',\'start\')">&#9654; Start</button>' : ''}
+                    ${inst.running  ? '<button class="btn btn-stop"   onclick="cmdInstance(\'' + inst.id + '\',\'stop\')">&#9646;&#9646; Stop</button>'  : ''}
+                    ${inst.running  ? '<button class="btn btn-reload" onclick="cmdInstance(\'' + inst.id + '\',\'reload\')">&#8635; Reload</button>' : ''}
+                </div>
+            `
+            grid.appendChild(card)
+        }
+        grid.style.display = "grid"
+    }
+    window.loadInstances = loadInstances
+
+    async function cmdInstance (id, command) {
+        const result = await apiFetch("/api/instances/" + id + "/" + command, { method: "POST" })
+        if (result.ok) {
+            toast(command.charAt(0).toUpperCase() + command.slice(1) + " sent", "success")
+            setTimeout(loadInstances, 500)
+        } else {
+            toast("Failed: " + result.error, "error")
+        }
+    }
+    window.cmdInstance = cmdInstance
+
+    async function cmdAll (command) {
+        const result = await apiFetch("/api/all/" + command, { method: "POST" })
+        if (result.ok) {
+            toast(command.charAt(0).toUpperCase() + command.slice(1) + " all sent", "success")
+            setTimeout(loadInstances, 700)
+        } else {
+            toast("Failed: " + result.error, "error")
+        }
+    }
+    window.cmdAll = cmdAll
+
+    /* ---- MEDIA ---- */
+
+    async function loadMedia () {
+        const grid    = document.getElementById("media-grid")
+        const loading = document.getElementById("media-loading")
+        const empty   = document.getElementById("media-empty")
+        const errBox  = document.getElementById("error-media")
+
+        loading.style.display = "block"
+        grid.style.display    = "none"
+        empty.style.display   = "none"
+        errBox.style.display  = "none"
+
+        const result = await apiFetch("/api/media")
+        loading.style.display = "none"
+
+        if (!result.ok) {
+            errBox.textContent = "Failed to load media: " + result.error
+            errBox.style.display = "block"
+            return
+        }
+
+        const files = result.data
+        if (files.length === 0) {
+            empty.style.display = "block"
+            return
+        }
+
+        grid.innerHTML = ""
+        for (const file of files) {
+            const item = document.createElement("div")
+            item.className = "media-item"
+            const mediaEl = file.type === "image"
+                ? `<img class="media-thumb" src="${BASE + file.url}" loading="lazy" alt="${escHtml(file.name)}"/>`
+                : `<video class="media-thumb-video" src="${BASE + file.url}" muted preload="metadata"></video>`
+            item.innerHTML = `
+                ${mediaEl}
+                <div class="media-info">
+                    <span class="media-name" title="${escHtml(file.name)}">${escHtml(file.name)}</span>
+                    <span class="media-size">${formatSize(file.size)}</span>
+                    <button class="media-delete" title="Delete file" onclick="deleteMedia('${escHtml(file.name)}')">&#10005;</button>
+                </div>
+            `
+            grid.appendChild(item)
+        }
+        grid.style.display = "grid"
+    }
+    window.loadMedia = loadMedia
+
+    async function deleteMedia (name) {
+        if (!confirm("Delete '" + name + "'?")) return
+        const result = await apiFetch("/api/media/" + encodeURIComponent(name), { method: "DELETE" })
+        if (result.ok) {
+            toast("Deleted: " + name, "success")
+            loadMedia()
+        } else {
+            toast("Delete failed: " + result.error, "error")
+        }
+    }
+    window.deleteMedia = deleteMedia
+
+    function onDragOver (ev) {
+        ev.preventDefault()
+        document.getElementById("upload-zone").classList.add("dragover")
+    }
+    function onDragLeave () {
+        document.getElementById("upload-zone").classList.remove("dragover")
+    }
+    function onDrop (ev) {
+        ev.preventDefault()
+        document.getElementById("upload-zone").classList.remove("dragover")
+        if (ev.dataTransfer.files.length > 0)
+            uploadFiles(ev.dataTransfer.files)
+    }
+    window.onDragOver = onDragOver
+    window.onDragLeave = onDragLeave
+    window.onDrop = onDrop
+
+    async function uploadFiles (fileList) {
+        const progressEl    = document.getElementById("upload-progress")
+        const progressBarEl = document.getElementById("upload-progress-bar")
+
+        progressEl.style.display = "block"
+        progressBarEl.style.width = "0%"
+
+        const files  = Array.from(fileList)
+        let uploaded = 0
+        for (const file of files) {
+            const form = new FormData()
+            form.append("file", file)
+            const result = await apiFetch("/api/media/upload", { method: "POST", body: form })
+            if (result.ok) {
+                uploaded++
+                toast("Uploaded: " + file.name, "success")
+            } else {
+                toast("Upload failed (" + file.name + "): " + result.error, "error")
+            }
+            progressBarEl.style.width = Math.round((uploaded / files.length) * 100) + "%"
+        }
+
+        setTimeout(() => {
+            progressEl.style.display  = "none"
+            progressBarEl.style.width = "0%"
+        }, 1500)
+
+        if (uploaded > 0) loadMedia()
+    }
+    window.uploadFiles = uploadFiles
+
+    /* ---- HELPERS ---- */
+
+    function escHtml (str) {
+        return String(str)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+    }
+
+    function refreshAll () {
+        const active = document.querySelector(".tab.active")
+        if (active?.dataset?.panel === "media") loadMedia()
+        else loadInstances()
+    }
+    window.refreshAll = refreshAll
+
+    /* ---- AUTO-REFRESH ---- */
+    let autoRefreshInterval = null
+    function startAutoRefresh () {
+        autoRefreshInterval = setInterval(() => {
+            const active = document.querySelector(".tab.active")
+            if (active?.dataset?.panel === "instances") loadInstances()
+        }, 5000)
+    }
+
+    /* ---- INIT ---- */
+    loadInstances()
+    startAutoRefresh()
+    setInterval(() => {
+        document.getElementById("status-time").textContent = "Updated: " + new Date().toLocaleTimeString()
+    }, 1000)
+})();
+</script>
+</body>
+</html>
