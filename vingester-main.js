@@ -18,9 +18,9 @@ const debounce    = require("throttle-debounce").debounce
 const throttle    = require("throttle-debounce").throttle
 const jsYAML      = require("js-yaml")
 const UUID        = require("pure-uuid")
-const HAPI        = require("hapi")
-const HAPIHeader  = require("hapi-plugin-header")
-const Boom        = require("@hapi/boom")
+const express     = require("express")
+const http        = require("http")
+const multer      = require("multer")
 const moment      = require("moment")
 const mkdirp      = require("mkdirp")
 const FFmpeg      = require("@rse/ffmpeg")
@@ -842,7 +842,8 @@ electron.app.on("ready", async () => {
     /*  toggle REST API  */
     const API = class {
         constructor () {
-            this.hapi    = null
+            this.app     = null
+            this.server  = null
             this.enabled = false
             this.addr    = "127.0.0.1"
             this.port    = "7211"
@@ -851,109 +852,87 @@ electron.app.on("ready", async () => {
             this.enabled = cfg.enabled ?? false
             this.addr    = cfg.addr    ?? "127.0.0.1"
             this.port    = cfg.port    ?? "7211"
-            if (this.enabled && !this.hapi)
+            if (this.enabled && !this.server)
                 this.start()
-            else if (!this.enabled && this.hapi)
+            else if (!this.enabled && this.server)
                 this.stop()
         }
         async start () {
             log.info("start API")
-            this.hapi = new HAPI.server({
-                host:  this.addr,
-                port:  parseInt(this.port),
-                debug: false
+            this.app = express()
+            this.app.use(express.json())
+
+            /*  common middleware: server header, CORS, request logging  */
+            this.app.use((req, res, next) => {
+                res.set("Server", `${pkg.name}/${pkg.version}`)
+                res.set("Access-Control-Allow-Origin", "*")
+                res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                res.set("Access-Control-Allow-Headers", "Content-Type")
+                if (req.method === "OPTIONS") return res.sendStatus(204)
+                res.on("finish", () => {
+                    log.info(`API: request: remote=${req.ip}, method=${req.method}, url=${req.path}, response=${res.statusCode}`)
+                })
+                next()
             })
-            await this.hapi.register({
-                plugin: HAPIHeader,
-                options: { Server: `${pkg.name}/${pkg.version}` }
+
+            /*  GET / — list all browser titles  */
+            this.app.get("/", (req, res) => {
+                const response = []
+                for (const id of Object.keys(browsers))
+                    response.push(browsers[id].cfg.t)
+                res.status(200).json(response)
             })
-            this.hapi.events.on("response", (request) => {
-                const msg =
-                    `remote=${request.info.remoteAddress}, ` +
-                    `method=${request.method.toUpperCase()}, ` +
-                    `url=${request.url.pathname}, ` +
-                    `protocol=HTTP/${request.raw.req.httpVersion}, ` +
-                    `response=${request.response?.statusCode ?? "<unknown>"}`
-                log.info(`API: request: ${msg}`)
-            })
-            this.hapi.events.on("log", (ev, tags) => {
-                if (tags.error) {
-                    const err = ev.error
-                    if (err instanceof Error)
-                        log.error(`API: log: ${err.message}`)
-                    else
-                        log.error(`API: log: ${err}`)
-                }
-            })
-            this.hapi.events.on({ name: "request", channels: [ "error" ] }, (req, ev, tags) => {
-                if (ev.error instanceof Error)
-                    log.error(`API: request-error: ${ev.error.message}`)
-                else
-                    log.error(`API: request-error: ${ev.error}`)
-            })
-            this.hapi.route({
-                method:   "GET",
-                path:     "/",
-                handler: async (req, h) => {
-                    const response = []
-                    for (const id of Object.keys(browsers))
-                        response.push(browsers[id].cfg.t)
-                    return h.response(JSON.stringify(response)).type("application/json").code(200)
-                }
-            })
-            this.hapi.route({
-                method:   "GET",
-                path:     "/{browser}/{command}",
-                handler: async (req, h) => {
-                    const { browser, command } = req.params
+
+            /*  GET|POST /:browser/:command — control by title or "all"  */
+            this.app.all("/:browser/:command", async (req, res) => {
+                const { browser, command } = req.params
+                try {
                     if (browser === "all") {
                         if (command === "start")
                             await controlBrowser("start-all")
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else if (command === "reload")
                             await controlBrowser("reload-all")
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else if (command === "stop")
                             await controlBrowser("stop-all")
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else
-                            throw new Boom.badRequest("invalid command")
+                            return res.status(400).json({ error: "invalid command" })
                     }
                     else {
                         const id = Object.keys(browsers).find((id) => browsers[id].cfg.t === browser)
                         if (id === undefined)
-                            throw new Boom.notFound("invalid browser title/name")
+                            return res.status(404).json({ error: "invalid browser title/name" })
                         if (command === "start")
                             await controlBrowser("start", id)
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else if (command === "reload")
                             await controlBrowser("reload", id)
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else if (command === "stop")
                             await controlBrowser("stop", id)
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else if (command === "clear")
                             await controlBrowser("clear", id)
-                                .catch((err) => { throw new Boom.expectationFailed(err.message) })
                         else
-                            throw new Boom.badRequest("invalid command")
+                            return res.status(400).json({ error: "invalid command" })
                     }
-                    return h.response("OK").code(200)
+                    res.status(200).send("OK")
+                }
+                catch (err) {
+                    res.status(417).json({ error: err.message })
                 }
             })
-            this.hapi.route({
-                method:   [ "GET", "POST" ],
-                path:     "/{any*}",
-                handler: async (req, h) => {
-                    throw new Boom.notFound("resource not found")
-                }
+
+            /*  404 catch-all  */
+            this.app.use((req, res) => res.status(404).json({ error: "resource not found" }))
+
+            this.server = http.createServer(this.app)
+            await new Promise((resolve, reject) => {
+                this.server.once("error", reject)
+                this.server.listen(parseInt(this.port), this.addr, resolve)
             })
-            await this.hapi.start()
         }
         async stop () {
             log.info("stop API")
-            await this.hapi.stop().catch(() => {})
-            this.hapi = null
+            await new Promise((resolve) => this.server.close(resolve)).catch(() => {})
+            this.server = null
+            this.app    = null
         }
     }
     log.info("create API")
@@ -983,7 +962,8 @@ electron.app.on("ready", async () => {
     /*  Web UI server - serves the web dashboard and media files  */
     const WebUI = class {
         constructor () {
-            this.hapi    = null
+            this.app     = null
+            this.server  = null
             this.enabled = false
             this.addr    = "127.0.0.1"
             this.port    = "7212"
@@ -992,47 +972,24 @@ electron.app.on("ready", async () => {
             this.enabled = cfg.enabled ?? false
             this.addr    = cfg.addr    ?? "127.0.0.1"
             this.port    = cfg.port    ?? "7212"
-            if (this.enabled && !this.hapi)
+            if (this.enabled && !this.server)
                 await this.start()
-            else if (!this.enabled && this.hapi)
+            else if (!this.enabled && this.server)
                 await this.stop()
         }
         async start () {
             log.info("start Web UI")
-            this.hapi = new HAPI.server({
-                host:  this.addr,
-                port:  parseInt(this.port),
-                debug: false,
-                routes: {
-                    cors: {
-                        origin: [ "*" ]
-                    }
-                }
-            })
-            await this.hapi.register({
-                plugin: HAPIHeader,
-                options: { Server: `${pkg.name}/${pkg.version}` }
-            })
-            this.hapi.events.on("log", (ev, tags) => {
-                if (tags.error) {
-                    const err = ev.error
-                    if (err instanceof Error)
-                        log.error(`WebUI: log: ${err.message}`)
-                    else
-                        log.error(`WebUI: log: ${err}`)
-                }
-            })
+            this.app = express()
+            this.app.use(express.json())
 
-            /*  serve the web UI dashboard  */
-            this.hapi.route({
-                method:  "GET",
-                path:    "/",
-                handler: async (req, h) => {
-                    const htmlPath = path.join(__dirname, "vingester-webui.html")
-                    const html = await fs.promises.readFile(htmlPath, { encoding: "utf8" })
-                    return h.response(html).type("text/html; charset=utf-8")
-                        .header("Cache-Control", "no-store").code(200)
-                }
+            /*  common middleware: server header, CORS  */
+            this.app.use((req, res, next) => {
+                res.set("Server", `${pkg.name}/${pkg.version}`)
+                res.set("Access-Control-Allow-Origin", "*")
+                res.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+                res.set("Access-Control-Allow-Headers", "Content-Type")
+                if (req.method === "OPTIONS") return res.sendStatus(204)
+                next()
             })
 
             /*  helper: persist in-memory browsers to store  */
@@ -1041,266 +998,217 @@ electron.app.on("ready", async () => {
                 saveConfigs(cfgArray)
             }
 
+            /*  async route wrapper for error propagation  */
+            const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
+
+            /*  serve the web UI dashboard  */
+            this.app.get("/", wrap(async (req, res) => {
+                const htmlPath = path.join(__dirname, "vingester-webui.html")
+                const html = await fs.promises.readFile(htmlPath, { encoding: "utf8" })
+                res.set("Cache-Control", "no-store")
+                res.status(200).type("text/html; charset=utf-8").send(html)
+            }))
+
             /*  REST API: list all instances  */
-            this.hapi.route({
-                method:  "GET",
-                path:    "/api/instances",
-                handler: async (req, h) => {
-                    const result = []
-                    for (const id of Object.keys(browsers)) {
-                        const b = browsers[id]
-                        result.push({
-                            id,
-                            running: b.running(),
-                            title:   b.cfg.t,
-                            info:    b.cfg.i,
-                            url:     b.cfg.u,
-                            inputType: b.cfg.it,
-                            width:   b.cfg.w,
-                            height:  b.cfg.h,
-                            fps:     b.cfg.f,
-                            ndi:     b.cfg.N,
-                            autoRefresh: b.cfg.ar,
-                            autoRefreshInterval: b.cfg.ai,
-                            autoStart: b.cfg.as,
-                            cfg:     { ...b.cfg }
-                        })
-                    }
-                    return h.response(JSON.stringify(result)).type("application/json").code(200)
+            this.app.get("/api/instances", (req, res) => {
+                const result = []
+                for (const id of Object.keys(browsers)) {
+                    const b = browsers[id]
+                    result.push({
+                        id,
+                        running: b.running(),
+                        title:   b.cfg.t,
+                        info:    b.cfg.i,
+                        url:     b.cfg.u,
+                        inputType: b.cfg.it,
+                        width:   b.cfg.w,
+                        height:  b.cfg.h,
+                        fps:     b.cfg.f,
+                        ndi:     b.cfg.N,
+                        autoRefresh: b.cfg.ar,
+                        autoRefreshInterval: b.cfg.ai,
+                        autoStart: b.cfg.as,
+                        cfg:     { ...b.cfg }
+                    })
                 }
+                res.status(200).json(result)
             })
 
             /*  REST API: add new instance  */
-            this.hapi.route({
-                method:  "POST",
-                path:    "/api/instances",
-                handler: async (req, h) => {
-                    const body = req.payload || {}
-                    const id = new UUID(1).fold(2).map((n) =>
-                        n.toString(16).toUpperCase().padStart(2, "0")).join("")
-                    const cfg = { id, ...body }
-                    sanitizeConfig(cfg)
-                    await controlBrowser("add", id, cfg)
-                    saveBrowsersToStore()
-                    log.info(`WebUI: added browser instance: ${cfg.t}`)
-                    return h.response(JSON.stringify({ ok: true, id })).type("application/json").code(201)
-                }
-            })
+            this.app.post("/api/instances", wrap(async (req, res) => {
+                const body = req.body || {}
+                const id = new UUID(1).fold(2).map((n) =>
+                    n.toString(16).toUpperCase().padStart(2, "0")).join("")
+                const cfg = { id, ...body }
+                sanitizeConfig(cfg)
+                await controlBrowser("add", id, cfg)
+                saveBrowsersToStore()
+                log.info(`WebUI: added browser instance: ${cfg.t}`)
+                res.status(201).json({ ok: true, id })
+            }))
 
             /*  REST API: update instance config  */
-            this.hapi.route({
-                method:  "PATCH",
-                path:    "/api/instances/{id}",
-                handler: async (req, h) => {
-                    const { id } = req.params
-                    if (!browsers[id])
-                        throw new Boom.notFound("instance not found")
-                    const cfg = { ...browsers[id].cfg, ...(req.payload || {}) }
-                    sanitizeConfig(cfg)
-                    await controlBrowser("mod", id, cfg)
-                    saveBrowsersToStore()
-                    log.info(`WebUI: modified browser instance: ${cfg.t}`)
-                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
-                }
-            })
+            this.app.patch("/api/instances/:id", wrap(async (req, res) => {
+                const { id } = req.params
+                if (!browsers[id])
+                    return res.status(404).json({ error: "instance not found" })
+                const cfg = { ...browsers[id].cfg, ...(req.body || {}) }
+                sanitizeConfig(cfg)
+                await controlBrowser("mod", id, cfg)
+                saveBrowsersToStore()
+                log.info(`WebUI: modified browser instance: ${cfg.t}`)
+                res.status(200).json({ ok: true })
+            }))
 
             /*  REST API: delete instance  */
-            this.hapi.route({
-                method:  "DELETE",
-                path:    "/api/instances/{id}",
-                handler: async (req, h) => {
-                    const { id } = req.params
-                    if (!browsers[id])
-                        throw new Boom.notFound("instance not found")
-                    const title = browsers[id].cfg.t
-                    await controlBrowser("del", id)
-                    saveBrowsersToStore()
-                    log.info(`WebUI: deleted browser instance: ${title}`)
-                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
-                }
-            })
+            this.app.delete("/api/instances/:id", wrap(async (req, res) => {
+                const { id } = req.params
+                if (!browsers[id])
+                    return res.status(404).json({ error: "instance not found" })
+                const title = browsers[id].cfg.t
+                await controlBrowser("del", id)
+                saveBrowsersToStore()
+                log.info(`WebUI: deleted browser instance: ${title}`)
+                res.status(200).json({ ok: true })
+            }))
 
             /*  REST API: instance control  */
-            this.hapi.route({
-                method:  [ "GET", "POST" ],
-                path:    "/api/instances/{id}/{command}",
-                handler: async (req, h) => {
-                    const { id, command } = req.params
-                    const validCommands = [ "start", "stop", "reload", "clear" ]
-                    if (!validCommands.includes(command))
-                        throw new Boom.badRequest("invalid command")
-                    if (!browsers[id])
-                        throw new Boom.notFound("instance not found")
-                    const timeout = new Promise((_, reject) =>
-                        setTimeout(() => reject(new Error("operation timed out after 12 seconds")), 12000))
-                    await Promise.race([ controlBrowser(command, id), timeout ])
-                        .catch((err) => { throw new Boom.expectationFailed(err.message) })
-                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
-                }
-            })
+            this.app.all("/api/instances/:id/:command", wrap(async (req, res) => {
+                const { id, command } = req.params
+                const validCommands = [ "start", "stop", "reload", "clear" ]
+                if (!validCommands.includes(command))
+                    return res.status(400).json({ error: "invalid command" })
+                if (!browsers[id])
+                    return res.status(404).json({ error: "instance not found" })
+                const timeout = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error("operation timed out after 12 seconds")), 12000))
+                await Promise.race([ controlBrowser(command, id), timeout ])
+                res.status(200).json({ ok: true })
+            }))
 
             /*  REST API: start/stop/reload all  */
-            this.hapi.route({
-                method:  [ "GET", "POST" ],
-                path:    "/api/all/{command}",
-                handler: async (req, h) => {
-                    const { command } = req.params
-                    const map = { start: "start-all", stop: "stop-all", reload: "reload-all" }
-                    if (!map[command])
-                        throw new Boom.badRequest("invalid command")
-                    await controlBrowser(map[command])
-                        .catch((err) => { throw new Boom.expectationFailed(err.message) })
-                    return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
-                }
-            })
+            this.app.all("/api/all/:command", wrap(async (req, res) => {
+                const { command } = req.params
+                const map = { start: "start-all", stop: "stop-all", reload: "reload-all" }
+                if (!map[command])
+                    return res.status(400).json({ error: "invalid command" })
+                await controlBrowser(map[command])
+                res.status(200).json({ ok: true })
+            }))
 
             /*  serve media files from the media directory  */
-            this.hapi.route({
-                method:  "GET",
-                path:    "/media/{filename*}",
-                handler: async (req, h) => {
-                    const filename = req.params.filename
-                    /*  prevent directory traversal  */
-                    const safeName = path.basename(filename)
-                    const filePath = path.join(mediaDir, safeName)
-                    try {
-                        const data = await fs.promises.readFile(filePath)
-                        const ext = path.extname(safeName).toLowerCase().slice(1)
-                        const mimeMap = {
-                            png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-                            gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
-                            svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm",
-                            ogg: "video/ogg", mov: "video/quicktime"
-                        }
-                        const mime = mimeMap[ext] || "application/octet-stream"
-                        return h.response(data).type(mime).code(200)
+            this.app.get("/media/:filename", wrap(async (req, res) => {
+                const safeName = path.basename(req.params.filename)
+                const filePath = path.join(mediaDir, safeName)
+                try {
+                    const data = await fs.promises.readFile(filePath)
+                    const ext = path.extname(safeName).toLowerCase().slice(1)
+                    const mimeMap = {
+                        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+                        gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+                        svg: "image/svg+xml", mp4: "video/mp4", webm: "video/webm",
+                        ogg: "video/ogg", mov: "video/quicktime"
                     }
-                    catch (err) {
-                        throw new Boom.notFound("media file not found")
-                    }
+                    const mime = mimeMap[ext] || "application/octet-stream"
+                    res.status(200).type(mime).send(data)
                 }
-            })
+                catch (err) {
+                    res.status(404).json({ error: "media file not found" })
+                }
+            }))
 
             /*  list media library  */
-            this.hapi.route({
-                method:  "GET",
-                path:    "/api/media",
-                handler: async (req, h) => {
-                    const imageExts = new Set([ ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg" ])
-                    const videoExts = new Set([ ".mp4", ".webm", ".ogg", ".mov", ".mkv", ".avi" ])
-                    let files = []
-                    try {
-                        const entries = await fs.promises.readdir(mediaDir)
-                        for (const entry of entries) {
-                            const ext = path.extname(entry).toLowerCase()
-                            if (imageExts.has(ext) || videoExts.has(ext)) {
-                                const stat = await fs.promises.stat(path.join(mediaDir, entry))
-                                files.push({
-                                    name: entry,
-                                    type: imageExts.has(ext) ? "image" : "video",
-                                    size: stat.size,
-                                    url:  `/media/${entry}`,
-                                    fullPath: path.join(mediaDir, entry)
-                                })
-                            }
+            this.app.get("/api/media", wrap(async (req, res) => {
+                const imageExts = new Set([ ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg" ])
+                const videoExts = new Set([ ".mp4", ".webm", ".ogg", ".mov", ".mkv", ".avi" ])
+                let files = []
+                try {
+                    const entries = await fs.promises.readdir(mediaDir)
+                    for (const entry of entries) {
+                        const ext = path.extname(entry).toLowerCase()
+                        if (imageExts.has(ext) || videoExts.has(ext)) {
+                            const stat = await fs.promises.stat(path.join(mediaDir, entry))
+                            files.push({
+                                name: entry,
+                                type: imageExts.has(ext) ? "image" : "video",
+                                size: stat.size,
+                                url:  `/media/${entry}`,
+                                fullPath: path.join(mediaDir, entry)
+                            })
                         }
                     }
-                    catch (err) {
-                        log.warn(`WebUI: could not read media dir: ${err.message}`)
-                    }
-                    return h.response(JSON.stringify(files)).type("application/json").code(200)
                 }
-            })
+                catch (err) {
+                    log.warn(`WebUI: could not read media dir: ${err.message}`)
+                }
+                res.status(200).json(files)
+            }))
 
             /*  upload media files  */
-            this.hapi.route({
-                method:  "POST",
-                path:    "/api/media/upload",
-                options: {
-                    payload: {
-                        output:    "stream",
-                        parse:     true,
-                        multipart: { output: "stream" },
-                        maxBytes:  500 * 1024 * 1024  /*  500 MB limit  */
-                    }
-                },
-                handler: async (req, h) => {
-                    const allowedExts = new Set([
-                        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
-                        ".mp4", ".webm", ".ogg", ".mov"
-                    ])
-                    const payload = req.payload
-                    const fileField = payload.file
-                    if (!fileField)
-                        throw new Boom.badRequest("no file in upload")
-
-                    /*  determine filename from headers  */
-                    const headers = fileField.hapi?.headers ?? {}
-                    const contentDisposition = headers["content-disposition"] || ""
-                    const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
-                    const originalName = filenameMatch ? filenameMatch[1] : "upload"
-                    const ext = path.extname(originalName).toLowerCase()
-
-                    if (!allowedExts.has(ext))
-                        throw new Boom.unsupportedMediaType(
-                            `File type '${ext}' not allowed. Allowed: images and videos only.`)
-
-                    /*  sanitize filename  */
-                    const safeName = path.basename(originalName).replace(/[^a-zA-Z0-9._-]/g, "_")
-                    const destPath = path.join(mediaDir, safeName)
-
-                    /*  write the stream to disk  */
-                    await new Promise((resolve, reject) => {
-                        const writeStream = fs.createWriteStream(destPath)
-                        fileField.pipe(writeStream)
-                        writeStream.on("finish", resolve)
-                        writeStream.on("error", reject)
-                        fileField.on("error", reject)
-                    })
-
-                    log.info(`WebUI: uploaded media file: ${safeName}`)
-                    return h.response(JSON.stringify({
-                        ok: true,
-                        name: safeName,
-                        url:  `/media/${safeName}`
-                    })).type("application/json").code(200)
-                }
+            const upload = multer({
+                dest:   mediaDir,
+                limits: { fileSize: 500 * 1024 * 1024 }  /*  500 MB limit  */
             })
+            this.app.post("/api/media/upload", upload.single("file"), wrap(async (req, res) => {
+                const allowedExts = new Set([
+                    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg",
+                    ".mp4", ".webm", ".ogg", ".mov"
+                ])
+                if (!req.file)
+                    return res.status(400).json({ error: "no file in upload" })
+
+                const ext = path.extname(req.file.originalname).toLowerCase()
+                if (!allowedExts.has(ext)) {
+                    await fs.promises.unlink(req.file.path).catch(() => {})
+                    return res.status(415).json({
+                        error: `File type '${ext}' not allowed. Allowed: images and videos only.`
+                    })
+                }
+
+                /*  sanitize filename and move to final destination  */
+                const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_")
+                const destPath = path.join(mediaDir, safeName)
+                await fs.promises.rename(req.file.path, destPath)
+
+                log.info(`WebUI: uploaded media file: ${safeName}`)
+                res.status(200).json({ ok: true, name: safeName, url: `/media/${safeName}` })
+            }))
 
             /*  delete media file  */
-            this.hapi.route({
-                method:  "DELETE",
-                path:    "/api/media/{filename}",
-                handler: async (req, h) => {
-                    const safeName = path.basename(req.params.filename)
-                    const filePath = path.join(mediaDir, safeName)
-                    try {
-                        await fs.promises.unlink(filePath)
-                        log.info(`WebUI: deleted media file: ${safeName}`)
-                        return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
-                    }
-                    catch (err) {
-                        throw new Boom.notFound("media file not found")
-                    }
+            this.app.delete("/api/media/:filename", wrap(async (req, res) => {
+                const safeName = path.basename(req.params.filename)
+                const filePath = path.join(mediaDir, safeName)
+                try {
+                    await fs.promises.unlink(filePath)
+                    log.info(`WebUI: deleted media file: ${safeName}`)
+                    res.status(200).json({ ok: true })
                 }
+                catch (err) {
+                    res.status(404).json({ error: "media file not found" })
+                }
+            }))
+
+            /*  global error handler  */
+            this.app.use((err, req, res, next) => {
+                log.error(`WebUI: unhandled error: ${err.message}`)
+                res.status(500).json({ error: err.message })
             })
 
-            /*  catch-all  */
-            this.hapi.route({
-                method:   [ "GET", "POST" ],
-                path:     "/{any*}",
-                handler: async (req, h) => {
-                    throw new Boom.notFound("resource not found")
-                }
-            })
+            /*  404 catch-all  */
+            this.app.use((req, res) => res.status(404).json({ error: "resource not found" }))
 
-            await this.hapi.start()
+            this.server = http.createServer(this.app)
+            await new Promise((resolve, reject) => {
+                this.server.once("error", reject)
+                this.server.listen(parseInt(this.port), this.addr, resolve)
+            })
             log.info(`Web UI available at http://${this.addr}:${this.port}/`)
         }
         async stop () {
             log.info("stop Web UI")
-            await this.hapi.stop().catch(() => {})
-            this.hapi = null
+            await new Promise((resolve) => this.server.close(resolve)).catch(() => {})
+            this.server = null
+            this.app    = null
         }
     }
     log.info("create Web UI")
