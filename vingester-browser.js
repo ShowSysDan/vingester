@@ -800,8 +800,11 @@ img, video {
             callbacks were at least done one last time  */
         this.worker.webContents.send("browser-worker-stop")
         await new Promise((resolve) => {
-            /*  use once() to avoid listener accumulation across multiple stop() calls  */
+            /*  use once() to avoid listener accumulation across multiple stop() calls.
+                5-second timeout ensures we don't hang if worker never responds.  */
+            const timer = setTimeout(resolve, 5000)
             electron.ipcMain.once("browser-worker-stopped", () => {
+                clearTimeout(timer)
                 resolve()
             })
         })

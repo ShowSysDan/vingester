@@ -1131,7 +1131,9 @@ electron.app.on("ready", async () => {
                         throw new Boom.badRequest("invalid command")
                     if (!browsers[id])
                         throw new Boom.notFound("instance not found")
-                    await controlBrowser(command, id)
+                    const timeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error("operation timed out after 12 seconds")), 12000))
+                    await Promise.race([ controlBrowser(command, id), timeout ])
                         .catch((err) => { throw new Boom.expectationFailed(err.message) })
                     return h.response(JSON.stringify({ ok: true })).type("application/json").code(200)
                 }
