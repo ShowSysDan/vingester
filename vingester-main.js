@@ -109,6 +109,11 @@ let autostart = false
 if (electron.app.commandLine.hasSwitch("autostart"))
     autostart = true
 
+/*  headless mode: keep control window permanently hidden; manage via WebUI  */
+let headless = false
+if (electron.app.commandLine.hasSwitch("headless"))
+    headless = true
+
 /*  force Chromium of browsers (not control UI) to ignore device scaling  */
 electron.app.commandLine.appendSwitch("high-dpi-support", "true")
 electron.app.commandLine.appendSwitch("force-device-scale-factor", "1")
@@ -751,7 +756,10 @@ electron.app.on("ready", async () => {
     /*  show the window once the DOM was mounted  */
     electron.ipcMain.handle("control-mounted", (ev) => {
         /*  bring user interface into final state   */
-        if (initiallyMinimized) {
+        if (headless) {
+            log.info("headless mode: control window remains hidden; manage via WebUI")
+        }
+        else if (initiallyMinimized) {
             log.info("bring user interface into final state (minimized)")
             control.minimize()
         }
@@ -1022,7 +1030,8 @@ electron.app.on("ready", async () => {
                 handler: async (req, h) => {
                     const htmlPath = path.join(__dirname, "vingester-webui.html")
                     const html = await fs.promises.readFile(htmlPath, { encoding: "utf8" })
-                    return h.response(html).type("text/html; charset=utf-8").code(200)
+                    return h.response(html).type("text/html; charset=utf-8")
+                        .header("Cache-Control", "no-store").code(200)
                 }
             })
 

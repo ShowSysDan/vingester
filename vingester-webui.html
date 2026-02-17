@@ -1201,14 +1201,42 @@
         return b.join("")
     }
 
-    function buildActions (inst) {
-        const r  = inst.running
-        const id = esc(inst.id)
-        return (r ? '' : `<button class="btn btn-start btn-sm" data-action="cmdInstance" data-id="${id}" data-cmd="start">&#9654; Start</button>`)
-             + (r ? `<button class="btn btn-stop btn-sm"   data-action="cmdInstance" data-id="${id}" data-cmd="stop">&#9646;&#9646; Stop</button>`  : '')
-             + (r ? `<button class="btn btn-reload btn-sm" data-action="cmdInstance" data-id="${id}" data-cmd="reload">&#8635; Reload</button>` : '')
-             + '<span class="inst-actions-spacer"></span>'
-             + `<button class="btn btn-edit btn-sm" data-action="openEditModal" data-id="${id}">&#9998; Edit</button>`
+    function buildActionButtons (inst) {
+        const frag = document.createDocumentFragment()
+        const { id, running } = inst
+
+        if (!running) {
+            const btn = document.createElement("button")
+            btn.className = "btn btn-start btn-sm"
+            btn.innerHTML = "&#9654; Start"
+            btn.addEventListener("click", function () { cmdInstance(id, "start") })
+            frag.appendChild(btn)
+        }
+        if (running) {
+            const s = document.createElement("button")
+            s.className = "btn btn-stop btn-sm"
+            s.innerHTML = "&#9646;&#9646; Stop"
+            s.addEventListener("click", function () { cmdInstance(id, "stop") })
+            frag.appendChild(s)
+
+            const r = document.createElement("button")
+            r.className = "btn btn-reload btn-sm"
+            r.innerHTML = "&#8635; Reload"
+            r.addEventListener("click", function () { cmdInstance(id, "reload") })
+            frag.appendChild(r)
+        }
+
+        const spacer = document.createElement("span")
+        spacer.className = "inst-actions-spacer"
+        frag.appendChild(spacer)
+
+        const edit = document.createElement("button")
+        edit.className = "btn btn-edit btn-sm"
+        edit.innerHTML = "&#9998; Edit"
+        edit.addEventListener("click", function () { openEditModal(id) })
+        frag.appendChild(edit)
+
+        return frag
     }
 
     function createCard (inst) {
@@ -1230,8 +1258,9 @@
             ${inst.info ? '<div class="inst-info">' + esc(inst.info) + '</div>' : ''}
             <div class="inst-url">${urlText}</div>
             <div class="inst-badges">${buildBadges(inst)}</div>
-            <div class="inst-actions">${buildActions(inst)}</div>
+            <div class="inst-actions"></div>
         `
+        card.querySelector(".inst-actions").appendChild(buildActionButtons(inst))
         return card
     }
 
@@ -1249,7 +1278,8 @@
             label.className = "inst-state-label" + (inst.running ? " running" : "")
             label.textContent = inst.running ? "Running" : "Stopped"
             const actions = card.querySelector(".inst-actions")
-            actions.innerHTML = buildActions(inst)
+            actions.innerHTML = ""
+            actions.appendChild(buildActionButtons(inst))
         }
 
         // Title change
@@ -1716,13 +1746,22 @@
             const thumb = f.type === "image"
                 ? `<img class="media-thumb" src="${BASE + f.url}" loading="lazy" alt="${esc(f.name)}"/>`
                 : `<video class="media-thumb" src="${BASE + f.url}" muted preload="metadata"></video>`
+            // Build the info row as HTML (static content only)
             item.innerHTML = `
                 ${thumb}
                 <div class="media-info">
                     <span class="media-name" title="${esc(f.name)}">${esc(f.name)}</span>
                     <span class="media-size">${fmtBytes(f.size)}</span>
-                    <button class="media-delete" title="Delete" data-action="deleteMedia" data-name="${esc(f.name)}">&#10005;</button>
                 </div>`
+            // Attach delete button directly via DOM so listener binds to the element
+            const delBtn = document.createElement("button")
+            delBtn.className = "media-delete"
+            delBtn.title = "Delete"
+            delBtn.innerHTML = "&#10005;"
+            ;(function (name) {
+                delBtn.addEventListener("click", function () { deleteMedia(name) })
+            })(f.name)
+            item.querySelector(".media-info").appendChild(delBtn)
             grid.appendChild(item)
         }
         show(grid)
@@ -1826,8 +1865,33 @@
     }
 
     /* ──────────────────────────────────────────────────────────────
-       INIT
+       INIT — Direct button bindings (belt-and-suspenders alongside
+       event delegation; bypasses all event bubbling requirements)
     ────────────────────────────────────────────────────────────── */
+    ;(function bindStaticButtons () {
+        function bind (sel, fn) {
+            const els = document.querySelectorAll(sel)
+            els.forEach(function (el) { el.addEventListener("click", fn) })
+        }
+        bind('[data-action="openAddModal"]',          function () { openAddModal() })
+        bind('[data-action="closeModal"]',             function () { closeModal() })
+        bind('[data-action="saveInstance"]',           function () { saveInstance() })
+        bind('[data-action="deleteCurrentInstance"]',  function () { deleteCurrentInstance() })
+        bind('[data-action="openMediaPicker"]',        function () { openMediaPicker() })
+        bind('[data-action="closeMediaPicker"]',       function () { closeMediaPicker() })
+        bind('[data-action="cmdAll"][data-cmd="start"]',  function () { cmdAll("start") })
+        bind('[data-action="cmdAll"][data-cmd="stop"]',   function () { cmdAll("stop") })
+        bind('[data-action="cmdAll"][data-cmd="reload"]', function () { cmdAll("reload") })
+        // Tab bar
+        document.querySelectorAll('[data-action="switchTab"]').forEach(function (el) {
+            el.addEventListener("click", function () { switchTab(el.dataset.panel, el) })
+        })
+        // Modal tabs
+        document.querySelectorAll('[data-action="switchModalTab"]').forEach(function (el) {
+            el.addEventListener("click", function () { switchModalTab(el.dataset.tab, el) })
+        })
+    })()
+
     loadInstances()
     startPoll()
     setInterval(() => {
