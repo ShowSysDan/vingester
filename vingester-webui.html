@@ -243,6 +243,29 @@
             white-space: nowrap;
             margin-bottom: 10px;
         }
+        .inst-url.has-thumb {
+            white-space: normal;
+            overflow: visible;
+            color: inherit;
+            font-family: inherit;
+        }
+        .inst-thumb {
+            width: 100%;
+            max-height: 72px;
+            object-fit: cover;
+            border-radius: 3px;
+            display: block;
+            margin-bottom: 4px;
+            background: var(--surface2);
+        }
+        .inst-thumb-name {
+            font-size: 10px;
+            color: var(--text-subtle);
+            font-family: ui-monospace, monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .inst-badges {
             display: flex;
             flex-wrap: wrap;
@@ -1255,10 +1278,6 @@
         card.className = "inst-card " + (inst.running ? "running" : "stopped")
         card.dataset.id = inst.id
 
-        const urlText = inst.inputType !== "url"
-            ? "(" + esc(inst.inputType) + ")"
-            : esc(inst.url || "(no URL)")
-
         card.innerHTML = `
             <div class="inst-card-head">
                 <div class="inst-dot ${inst.running ? "running" : ""}"></div>
@@ -1266,12 +1285,39 @@
                 <div class="inst-state-label ${inst.running ? "running" : ""}">${inst.running ? "Running" : "Stopped"}</div>
             </div>
             ${inst.info ? '<div class="inst-info">' + esc(inst.info) + '</div>' : ''}
-            <div class="inst-url">${urlText}</div>
+            <div class="inst-url"></div>
             <div class="inst-badges">${buildBadges(inst)}</div>
             <div class="inst-actions"></div>
         `
+        setInstUrl(card.querySelector(".inst-url"), inst)
         card.querySelector(".inst-actions").appendChild(buildActionButtons(inst))
         return card
+    }
+
+    function setInstUrl (el, inst) {
+        el.innerHTML = ""
+        if (inst.inputType === "image" && inst.cfg && inst.cfg.if) {
+            /*  extract first file path (may be multi-line for slideshows)  */
+            const filename = String(inst.cfg.if).trim().split(/[\r\n]+/)[0].split(/[/\\]/).pop()
+            if (filename) {
+                el.classList.add("has-thumb")
+                const img = document.createElement("img")
+                img.className = "inst-thumb"
+                img.src       = "/media/" + encodeURIComponent(filename)
+                img.alt       = "preview"
+                img.loading   = "lazy"
+                const lbl = document.createElement("div")
+                lbl.className   = "inst-thumb-name"
+                lbl.textContent = filename
+                el.appendChild(img)
+                el.appendChild(lbl)
+                return
+            }
+        }
+        el.classList.remove("has-thumb")
+        el.textContent = inst.inputType !== "url"
+            ? "(" + inst.inputType + ")"
+            : (inst.url || "(no URL)")
     }
 
     function updateCard (inst) {
@@ -1305,11 +1351,10 @@
         }
 
         // URL/inputType change
-        if (prev.url !== inst.url || prev.inputType !== inst.inputType) {
+        if (prev.url !== inst.url || prev.inputType !== inst.inputType
+                || (inst.cfg && prev.cfg && prev.cfg.if !== inst.cfg.if)) {
             const el = card.querySelector(".inst-url")
-            if (el) el.textContent = inst.inputType !== "url"
-                ? "(" + inst.inputType + ")"
-                : (inst.url || "(no URL)")
+            if (el) setInstUrl(el, inst)
         }
 
         // Badges change (NDI, autoStart, autoRefresh, dimensions, fps)
