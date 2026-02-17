@@ -992,10 +992,12 @@ electron.app.on("ready", async () => {
                 next()
             })
 
-            /*  helper: persist in-memory browsers to store  */
+            /*  helper: persist in-memory browsers to store and notify Control UI  */
             const saveBrowsersToStore = () => {
                 const cfgArray = Object.keys(browsers).map((bid) => ({ id: bid, ...browsers[bid].cfg }))
                 saveConfigs(cfgArray)
+                if (control && !control.isDestroyed())
+                    control.webContents.send("browsers-refresh")
             }
 
             /*  async route wrapper for error propagation  */
