@@ -1461,12 +1461,12 @@
 
     // Defaults mirror the fields[] array in vingester-main.js
     const DEFAULTS = {
-        t: "", i: "", w: "1280", h: "720", c: "transparent", z: "1.0",
+        t: "", i: "", w: "1920", h: "1080", c: "transparent", z: "1.0",
         H: false, I: false, B: false, S: false,
         ar: false, ai: "300", as: false,
         it: "url", u: "", "if": "", si: "5", sf: "1",
         k: "0", j: "", g: "inline", q: "", G: "inline", Q: "",
-        N: false, f: "30", a: false, O: "0", r: 48000, C: "2", o: "0",
+        N: true, f: "60", a: false, O: "0", r: 48000, C: "2", o: "0",
         n: true, v: true, l: false,
         m: false, R: "vbr", F: "matroska", M: ""
     }
@@ -1579,37 +1579,46 @@
     }
 
     async function saveInstance () {
-        const cfg = collectForm()
-        if (!cfg.t.trim()) {
-            toast("Title is required", "error")
-            return
+        const saveBtn = document.querySelector('[data-action="saveInstance"]')
+        if (saveBtn) {
+            if (saveBtn.disabled) return   /*  guard against double-fire  */
+            saveBtn.disabled = true
         }
-        if (editingId) {
-            const r = await api("/api/instances/" + editingId, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(cfg)
-            })
-            if (r.ok) {
-                toast("Saved", "success")
-                closeModal()
-                await loadInstances()
-            } else {
-                toast("Save failed: " + r.error, "error")
+        try {
+            const cfg = collectForm()
+            if (!cfg.t.trim()) {
+                toast("Title is required", "error")
+                return
             }
-        } else {
-            const r = await api("/api/instances", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(cfg)
-            })
-            if (r.ok) {
-                toast("Instance added", "success")
-                closeModal()
-                await loadInstances()
+            if (editingId) {
+                const r = await api("/api/instances/" + editingId, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(cfg)
+                })
+                if (r.ok) {
+                    toast("Saved", "success")
+                    closeModal()
+                    await loadInstances()
+                } else {
+                    toast("Save failed: " + r.error, "error")
+                }
             } else {
-                toast("Add failed: " + r.error, "error")
+                const r = await api("/api/instances", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(cfg)
+                })
+                if (r.ok) {
+                    toast("Instance added", "success")
+                    closeModal()
+                    await loadInstances()
+                } else {
+                    toast("Add failed: " + r.error, "error")
+                }
             }
+        } finally {
+            if (saveBtn) saveBtn.disabled = false
         }
     }
 
@@ -1914,33 +1923,6 @@
         loadMedia, deleteMedia, uploadFiles, onDragOver, onDragLeave, onDrop
     }
 
-    /* ──────────────────────────────────────────────────────────────
-       INIT — Direct button bindings (belt-and-suspenders alongside
-       event delegation; bypasses all event bubbling requirements)
-    ────────────────────────────────────────────────────────────── */
-    ;(function bindStaticButtons () {
-        function bind (sel, fn) {
-            const els = document.querySelectorAll(sel)
-            els.forEach(function (el) { el.addEventListener("click", fn) })
-        }
-        bind('[data-action="openAddModal"]',          function () { openAddModal() })
-        bind('[data-action="closeModal"]',             function () { closeModal() })
-        bind('[data-action="saveInstance"]',           function () { saveInstance() })
-        bind('[data-action="deleteCurrentInstance"]',  function () { deleteCurrentInstance() })
-        bind('[data-action="openMediaPicker"]',        function () { openMediaPicker() })
-        bind('[data-action="closeMediaPicker"]',       function () { closeMediaPicker() })
-        bind('[data-action="cmdAll"][data-cmd="start"]',  function () { cmdAll("start") })
-        bind('[data-action="cmdAll"][data-cmd="stop"]',   function () { cmdAll("stop") })
-        bind('[data-action="cmdAll"][data-cmd="reload"]', function () { cmdAll("reload") })
-        // Tab bar
-        document.querySelectorAll('[data-action="switchTab"]').forEach(function (el) {
-            el.addEventListener("click", function () { switchTab(el.dataset.panel, el) })
-        })
-        // Modal tabs
-        document.querySelectorAll('[data-action="switchModalTab"]').forEach(function (el) {
-            el.addEventListener("click", function () { switchModalTab(el.dataset.tab, el) })
-        })
-    })()
 
     loadInstances()
     startPoll()
