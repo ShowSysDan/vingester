@@ -102,6 +102,23 @@ const app = Vue.createApp({
         electron.ipcRenderer.on("save", (ev) => {
             this.save()
         })
+        electron.ipcRenderer.on("browsers-refresh", async (ev) => {
+            /*  Web UI added/modified/deleted an instance — sync Vue state without
+                pruning or restarting any running browsers  */
+            const updated = await electron.ipcRenderer.invoke("browsers-load")
+            const existingIds = new Set(this.browsers.map(b => b.id))
+            const updatedIds  = new Set(updated.map(b => b.id))
+            for (const browser of updated)
+                if (!existingIds.has(browser.id)) {
+                    this.resetState(browser.id)
+                    this.validateState(browser)
+                }
+            for (const browser of this.browsers)
+                if (!updatedIds.has(browser.id))
+                    this.deleteState(browser.id)
+            this.browsers = updated
+            this.renderDisplayIcons()
+        })
         electron.ipcRenderer.on("browser-start", (ev, id) => {
             log.info("browser-start", id)
             this.resetState(id)
