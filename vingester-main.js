@@ -1165,12 +1165,28 @@ electron.app.on("ready", async () => {
                     })
                 }
 
-                /*  sanitize filename and move to final destination  */
-                const safeName = path.basename(req.file.originalname).replace(/[^a-zA-Z0-9._-]/g, "_")
-                const destPath = path.join(mediaDir, safeName)
+                /*  build timestamped name: AppName_YYYYMMDD_HHmmss[_N].ext  */
+                const now   = new Date()
+                const pad   = (n) => String(n).padStart(2, "0")
+                const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}` +
+                              `_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+                const base  = `${pkg.name}_${stamp}`
+                let safeName = base + ext
+                let destPath = path.join(mediaDir, safeName)
+                let counter  = 0
+                while (true) {
+                    try {
+                        await fs.promises.access(destPath, fs.constants.F_OK)
+                        /*  file exists — try next counter  */
+                        counter++
+                        safeName = `${base}_${counter}${ext}`
+                        destPath = path.join(mediaDir, safeName)
+                    }
+                    catch { break }  /*  access throws when file absent — slot is free  */
+                }
                 await fs.promises.rename(req.file.path, destPath)
 
-                log.info(`WebUI: uploaded media file: ${safeName}`)
+                log.info(`WebUI: uploaded media file: ${safeName} (original: ${req.file.originalname})`)
                 res.status(200).json({ ok: true, name: safeName, url: `/media/${safeName}` })
             }))
 

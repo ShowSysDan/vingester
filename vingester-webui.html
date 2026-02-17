@@ -8,7 +8,7 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Vingester</title>
+    <title>WebRetriever</title>
     <style>
         :root {
             --bg:           #0d1117;
@@ -242,6 +242,29 @@
             text-overflow: ellipsis;
             white-space: nowrap;
             margin-bottom: 10px;
+        }
+        .inst-url.has-thumb {
+            white-space: normal;
+            overflow: visible;
+            color: inherit;
+            font-family: inherit;
+        }
+        .inst-thumb {
+            width: 100%;
+            max-height: 72px;
+            object-fit: cover;
+            border-radius: 3px;
+            display: block;
+            margin-bottom: 4px;
+            background: var(--surface2);
+        }
+        .inst-thumb-name {
+            font-size: 10px;
+            color: var(--text-subtle);
+            font-family: ui-monospace, monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .inst-badges {
             display: flex;
@@ -603,8 +626,8 @@
         .upload-progress {
             background: var(--surface2);
             border-radius: 4px;
-            height: 3px;
-            margin-bottom: 14px;
+            height: 5px;
+            margin-bottom: 6px;
             display: none;
         }
         .upload-progress-bar {
@@ -612,7 +635,16 @@
             background: var(--accent);
             border-radius: 4px;
             width: 0;
-            transition: width 0.3s;
+            transition: width 0.15s;
+        }
+        .upload-progress-label {
+            font-size: 11px;
+            color: var(--text-subtle);
+            margin-bottom: 10px;
+            display: none;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .media-grid {
             display: grid;
@@ -710,8 +742,8 @@
 <!-- ── HEADER ──────────────────────────────────────────────────── -->
 <header id="app-header">
     <div class="header-logo">
-        <div class="logo-icon">&#9654;</div>
-        Vingester
+        <div class="logo-icon">&#128021;</div>
+        WebRetriever
     </div>
     <div class="header-divider"></div>
     <div id="conn-status">
@@ -768,6 +800,7 @@
         <div class="upload-progress" id="upload-progress">
             <div class="upload-progress-bar" id="upload-progress-bar"></div>
         </div>
+        <div class="upload-progress-label" id="upload-progress-label"></div>
         <div id="media-loading" class="state-msg">Loading media&hellip;</div>
         <div id="media-empty" class="state-msg" style="display:none">
             <div class="state-icon">&#9112;</div>
@@ -1245,10 +1278,6 @@
         card.className = "inst-card " + (inst.running ? "running" : "stopped")
         card.dataset.id = inst.id
 
-        const urlText = inst.inputType !== "url"
-            ? "(" + esc(inst.inputType) + ")"
-            : esc(inst.url || "(no URL)")
-
         card.innerHTML = `
             <div class="inst-card-head">
                 <div class="inst-dot ${inst.running ? "running" : ""}"></div>
@@ -1256,12 +1285,39 @@
                 <div class="inst-state-label ${inst.running ? "running" : ""}">${inst.running ? "Running" : "Stopped"}</div>
             </div>
             ${inst.info ? '<div class="inst-info">' + esc(inst.info) + '</div>' : ''}
-            <div class="inst-url">${urlText}</div>
+            <div class="inst-url"></div>
             <div class="inst-badges">${buildBadges(inst)}</div>
             <div class="inst-actions"></div>
         `
+        setInstUrl(card.querySelector(".inst-url"), inst)
         card.querySelector(".inst-actions").appendChild(buildActionButtons(inst))
         return card
+    }
+
+    function setInstUrl (el, inst) {
+        el.innerHTML = ""
+        if (inst.inputType === "image" && inst.cfg && inst.cfg.if) {
+            /*  extract first file path (may be multi-line for slideshows)  */
+            const filename = String(inst.cfg.if).trim().split(/[\r\n]+/)[0].split(/[/\\]/).pop()
+            if (filename) {
+                el.classList.add("has-thumb")
+                const img = document.createElement("img")
+                img.className = "inst-thumb"
+                img.src       = "/media/" + encodeURIComponent(filename)
+                img.alt       = "preview"
+                img.loading   = "lazy"
+                const lbl = document.createElement("div")
+                lbl.className   = "inst-thumb-name"
+                lbl.textContent = filename
+                el.appendChild(img)
+                el.appendChild(lbl)
+                return
+            }
+        }
+        el.classList.remove("has-thumb")
+        el.textContent = inst.inputType !== "url"
+            ? "(" + inst.inputType + ")"
+            : (inst.url || "(no URL)")
     }
 
     function updateCard (inst) {
@@ -1295,11 +1351,10 @@
         }
 
         // URL/inputType change
-        if (prev.url !== inst.url || prev.inputType !== inst.inputType) {
+        if (prev.url !== inst.url || prev.inputType !== inst.inputType
+                || (inst.cfg && prev.cfg && prev.cfg.if !== inst.cfg.if)) {
             const el = card.querySelector(".inst-url")
-            if (el) el.textContent = inst.inputType !== "url"
-                ? "(" + inst.inputType + ")"
-                : (inst.url || "(no URL)")
+            if (el) setInstUrl(el, inst)
         }
 
         // Badges change (NDI, autoStart, autoRefresh, dimensions, fps)
@@ -1403,7 +1458,7 @@
         const r = await api("/api/all/" + command, { method: "POST" })
         if (r.ok) {
             toast(command.charAt(0).toUpperCase() + command.slice(1) + " all", "success")
-            setTimeout(loadInstances, 400)
+            await loadInstances()
         } else {
             toast("Error: " + r.error, "error")
         }
@@ -1451,12 +1506,12 @@
 
     // Defaults mirror the fields[] array in vingester-main.js
     const DEFAULTS = {
-        t: "", i: "", w: "1280", h: "720", c: "transparent", z: "1.0",
+        t: "", i: "", w: "1920", h: "1080", c: "transparent", z: "1.0",
         H: false, I: false, B: false, S: false,
         ar: false, ai: "300", as: false,
         it: "url", u: "", "if": "", si: "5", sf: "1",
         k: "0", j: "", g: "inline", q: "", G: "inline", Q: "",
-        N: false, f: "30", a: false, O: "0", r: 48000, C: "2", o: "0",
+        N: true, f: "60", a: false, O: "0", r: 48000, C: "2", o: "0",
         n: true, v: true, l: false,
         m: false, R: "vbr", F: "matroska", M: ""
     }
@@ -1569,37 +1624,46 @@
     }
 
     async function saveInstance () {
-        const cfg = collectForm()
-        if (!cfg.t.trim()) {
-            toast("Title is required", "error")
-            return
+        const saveBtn = document.querySelector('[data-action="saveInstance"]')
+        if (saveBtn) {
+            if (saveBtn.disabled) return   /*  guard against double-fire  */
+            saveBtn.disabled = true
         }
-        if (editingId) {
-            const r = await api("/api/instances/" + editingId, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(cfg)
-            })
-            if (r.ok) {
-                toast("Saved", "success")
-                closeModal()
-                await loadInstances()
-            } else {
-                toast("Save failed: " + r.error, "error")
+        try {
+            const cfg = collectForm()
+            if (!cfg.t.trim()) {
+                toast("Title is required", "error")
+                return
             }
-        } else {
-            const r = await api("/api/instances", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(cfg)
-            })
-            if (r.ok) {
-                toast("Instance added", "success")
-                closeModal()
-                await loadInstances()
+            if (editingId) {
+                const r = await api("/api/instances/" + editingId, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(cfg)
+                })
+                if (r.ok) {
+                    toast("Saved", "success")
+                    closeModal()
+                    await loadInstances()
+                } else {
+                    toast("Save failed: " + r.error, "error")
+                }
             } else {
-                toast("Add failed: " + r.error, "error")
+                const r = await api("/api/instances", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(cfg)
+                })
+                if (r.ok) {
+                    toast("Instance added", "success")
+                    closeModal()
+                    await loadInstances()
+                } else {
+                    toast("Add failed: " + r.error, "error")
+                }
             }
+        } finally {
+            if (saveBtn) saveBtn.disabled = false
         }
     }
 
@@ -1790,19 +1854,54 @@
     async function uploadFiles (fileList) {
         const progress = document.getElementById("upload-progress")
         const bar      = document.getElementById("upload-progress-bar")
-        show(progress); bar.style.width = "0%"
+        const lbl      = document.getElementById("upload-progress-label")
+        show(progress); if (lbl) show(lbl)
+        bar.style.width = "0%"
 
-        const files = Array.from(fileList)
-        let done = 0
+        const files      = Array.from(fileList)
+        const totalBytes = files.reduce((sum, f) => sum + f.size, 0) || 1
+        let bytesDone    = 0
+        let done         = 0
+
         for (const file of files) {
             const form = new FormData()
             form.append("file", file)
-            const r = await api("/api/media/upload", { method: "POST", body: form })
+
+            /*  XHR gives real per-byte upload progress; fetch does not  */
+            const r = await new Promise((resolve) => {
+                const xhr = new XMLHttpRequest()
+                xhr.open("POST", BASE + "/api/media/upload")
+
+                xhr.upload.addEventListener("progress", (e) => {
+                    if (!e.lengthComputable) return
+                    const pct = Math.round((bytesDone + e.loaded) / totalBytes * 100)
+                    bar.style.width = pct + "%"
+                    if (lbl) lbl.textContent = file.name + "  \u2014  " + pct + "%"
+                })
+
+                xhr.addEventListener("load", () => {
+                    bytesDone += file.size
+                    try {
+                        const data = JSON.parse(xhr.responseText)
+                        if (xhr.status >= 200 && xhr.status < 300)
+                            resolve({ ok: true, data })
+                        else
+                            resolve({ ok: false, error: data.error || "HTTP " + xhr.status })
+                    }
+                    catch (ex) { resolve({ ok: false, error: "Invalid response" }) }
+                })
+                xhr.addEventListener("error", () => resolve({ ok: false, error: "Network error" }))
+                xhr.addEventListener("abort", () => resolve({ ok: false, error: "Upload cancelled" }))
+                xhr.send(form)
+            })
+
             if (r.ok) { done++; toast("Uploaded: " + file.name, "success") }
             else      { toast("Upload failed (" + file.name + "): " + r.error, "error") }
-            bar.style.width = Math.round((done / files.length) * 100) + "%"
         }
-        setTimeout(() => { hide(progress); bar.style.width = "0%" }, 1200)
+
+        bar.style.width = "100%"
+        if (lbl) lbl.textContent = ""
+        setTimeout(() => { hide(progress); if (lbl) hide(lbl); bar.style.width = "0%" }, 1200)
         if (done > 0) loadMedia()
     }
 
@@ -1844,11 +1943,16 @@
     ────────────────────────────────────────────────────────────── */
     function startPoll () {
         setInterval(async () => {
+            if (document.hidden) return
             const active = document.querySelector(".tab-btn.active")
             if (!active || active.textContent.trim() === "Instances") {
                 await loadInstances()
             }
-        }, 4000)
+        }, 2000)
+        /*  refresh immediately when the browser tab becomes visible again  */
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) loadInstances()
+        })
     }
 
     /* ──────────────────────────────────────────────────────────────
@@ -1864,33 +1968,6 @@
         loadMedia, deleteMedia, uploadFiles, onDragOver, onDragLeave, onDrop
     }
 
-    /* ──────────────────────────────────────────────────────────────
-       INIT — Direct button bindings (belt-and-suspenders alongside
-       event delegation; bypasses all event bubbling requirements)
-    ────────────────────────────────────────────────────────────── */
-    ;(function bindStaticButtons () {
-        function bind (sel, fn) {
-            const els = document.querySelectorAll(sel)
-            els.forEach(function (el) { el.addEventListener("click", fn) })
-        }
-        bind('[data-action="openAddModal"]',          function () { openAddModal() })
-        bind('[data-action="closeModal"]',             function () { closeModal() })
-        bind('[data-action="saveInstance"]',           function () { saveInstance() })
-        bind('[data-action="deleteCurrentInstance"]',  function () { deleteCurrentInstance() })
-        bind('[data-action="openMediaPicker"]',        function () { openMediaPicker() })
-        bind('[data-action="closeMediaPicker"]',       function () { closeMediaPicker() })
-        bind('[data-action="cmdAll"][data-cmd="start"]',  function () { cmdAll("start") })
-        bind('[data-action="cmdAll"][data-cmd="stop"]',   function () { cmdAll("stop") })
-        bind('[data-action="cmdAll"][data-cmd="reload"]', function () { cmdAll("reload") })
-        // Tab bar
-        document.querySelectorAll('[data-action="switchTab"]').forEach(function (el) {
-            el.addEventListener("click", function () { switchTab(el.dataset.panel, el) })
-        })
-        // Modal tabs
-        document.querySelectorAll('[data-action="switchModalTab"]').forEach(function (el) {
-            el.addEventListener("click", function () { switchModalTab(el.dataset.tab, el) })
-        })
-    })()
 
     loadInstances()
     startPoll()
