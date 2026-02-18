@@ -107,20 +107,56 @@ const app = Vue.createApp({
         electron.ipcRenderer.on("browsers-refresh", async (ev) => {
             /*  Web UI added/modified/deleted an instance — sync Vue state without
                 pruning or restarting any running browsers  */
-            const updated = await electron.ipcRenderer.invoke("browsers-load")
-            const existingIds = new Set(this.browsers.map(b => b.id))
-            const updatedIds  = new Set(updated.map(b => b.id))
-            for (const browser of updated)
-                if (!existingIds.has(browser.id)) {
-                    this.resetState(browser.id)
-                    this.validateState(browser)
-                }
-            for (const browser of this.browsers)
-                if (!updatedIds.has(browser.id))
-                    this.deleteState(browser.id)
-            this.browsers = updated
-            this.renderDisplayIcons()
+            try {
+                /*  cancel any pending Control UI save to prevent it from overwriting
+                    WebUI changes to the store before this refresh completes  */
+                this.save.cancel()
+                const updated = await electron.ipcRenderer.invoke("browsers-load")
+                const existingIds = new Set(this.browsers.map(b => b.id))
+                const updatedIds  = new Set(updated.map(b => b.id))
+                for (const browser of updated)
+                    if (!existingIds.has(browser.id)) {
+                        this.resetState(browser.id)
+                        this.validateState(browser)
+                    }
+                for (const browser of this.browsers)
+                    if (!updatedIds.has(browser.id))
+                        this.deleteState(browser.id)
+                this.browsers = updated
+                this.renderDisplayIcons()
+            }
+            catch (err) {
+                log.error(`browsers-refresh sync failed: ${err.message}`)
+            }
         })
+        /*  fallback: poll config version every 10s and sync if main process has newer data;
+            this catches any missed or failed browsers-refresh events  */
+        this._lastConfigVersion = -1
+        setInterval(async () => {
+            try {
+                const v = await electron.ipcRenderer.invoke("configs-version")
+                if (v !== this._lastConfigVersion) {
+                    this._lastConfigVersion = v
+                    const updated = await electron.ipcRenderer.invoke("browsers-load")
+                    if (JSON.stringify(updated) !== JSON.stringify(this.browsers)) {
+                        this.save.cancel()
+                        const existingIds = new Set(this.browsers.map(b => b.id))
+                        const updatedIds  = new Set(updated.map(b => b.id))
+                        for (const browser of updated)
+                            if (!existingIds.has(browser.id)) {
+                                this.resetState(browser.id)
+                                this.validateState(browser)
+                            }
+                        for (const browser of this.browsers)
+                            if (!updatedIds.has(browser.id))
+                                this.deleteState(browser.id)
+                        this.browsers = updated
+                        this.renderDisplayIcons()
+                    }
+                }
+            }
+            catch (err) { /* silently ignore transient polling errors */ }
+        }, 10 * 1000)
         electron.ipcRenderer.on("browser-start", (ev, id) => {
             log.info("browser-start", id)
             this.resetState(id)

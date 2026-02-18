@@ -413,9 +413,11 @@ electron.app.on("ready", async () => {
         }
         return changed
     }
+    let configVersion = 0
     const saveConfigs = (browsers) => {
         browsers = JSON.stringify(browsers)
         store.set("browsers", browsers)
+        configVersion++
     }
     const loadConfigs = () => {
         let changed = 0
@@ -435,6 +437,7 @@ electron.app.on("ready", async () => {
     electron.ipcMain.handle("browsers-load", async (ev) => {
         return loadConfigs()
     })
+    electron.ipcMain.handle("configs-version", () => configVersion)
     electron.ipcMain.handle("browsers-save", async (ev, browsers) => {
         saveConfigs(browsers)
     })
@@ -1079,11 +1082,13 @@ electron.app.on("ready", async () => {
             })
 
             /*  helper: persist in-memory browsers to store and notify Control UI  */
+            const debouncedAutosave = debounce(10 * 1000, performAutosave)
             const saveBrowsersToStore = () => {
                 const cfgArray = Object.keys(browsers).map((bid) => ({ id: bid, ...browsers[bid].cfg }))
                 saveConfigs(cfgArray)
                 if (control && !control.isDestroyed())
                     control.webContents.send("browsers-refresh")
+                debouncedAutosave()
             }
 
             /*  async route wrapper for error propagation  */
@@ -1362,9 +1367,9 @@ electron.app.on("ready", async () => {
         })
     }, 100)
 
-    /*  start 60-minute autosave timer  */
-    log.info("start autosave timer (60-minute interval)")
-    autosaveTimer = setInterval(performAutosave, 60 * 60 * 1000)
+    /*  start 5-minute autosave timer  */
+    log.info("start autosave timer (5-minute interval)")
+    autosaveTimer = setInterval(performAutosave, 5 * 60 * 1000)
 
     /*  register some global shortcuts  */
     electron.globalShortcut.register("Control+Alt+Shift+Escape", () => {
