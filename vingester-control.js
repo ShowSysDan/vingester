@@ -74,7 +74,9 @@ const app = Vue.createApp({
             apiPort:           "7211",
             webuiEnabled:      false,
             webuiAddr:         "127.0.0.1",
-            webuiPort:         "7212"
+            webuiPort:         "7212",
+            autosaveFile:      null,
+            autosaveLastTime:  null
         }
     },
     computed: {
@@ -234,6 +236,13 @@ const app = Vue.createApp({
             this.webuiEnabled = webui.enabled
             this.webuiAddr    = webui.addr
             this.webuiPort    = webui.port
+        })
+        electron.ipcRenderer.on("autosave-file", (ev, file) => {
+            this.autosaveFile = file
+        })
+        electron.ipcRenderer.on("autosave-done", (ev, { file, time }) => {
+            this.autosaveFile    = file
+            this.autosaveLastTime = time
         })
         electron.ipcRenderer.on("webui-error", (ev, errMsg) => {
             this.webuiEnabled = false
@@ -516,6 +525,12 @@ const app = Vue.createApp({
                 addr:    this.webuiAddr,
                 port:    this.webuiPort
             })
+        },
+        async autosaveSetFile () {
+            await electron.ipcRenderer.invoke("autosave-set-file")
+        },
+        async autosaveNow () {
+            await electron.ipcRenderer.invoke("autosave-now")
         },
         async selectMediaFiles (browser, multiSelect) {
             const files = await electron.ipcRenderer.invoke("select-media-files", multiSelect)
