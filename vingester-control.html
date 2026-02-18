@@ -68,6 +68,13 @@
                                     <span class="icon"><i class="fas fa-desktop" data-fa-transform="shrink-7"></i></span>
                                 </span>
                             </div>
+                            <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>autosave settings.' }"
+                                v-on:click="modalToggle('autosave')">
+                                <span class="icon-stack">
+                                    <span class="icon"><i class="fas fa-circle"></i></span>
+                                    <span class="icon"><i class="fas fa-save" data-fa-transform="shrink-7"></i></span>
+                                </span>
+                            </div>
                             <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>application error messages.' }"
                                 v-on:click="modalToggle('messages')">
                                 <span class="icon-stack">
@@ -274,6 +281,44 @@
                         The REST API for the Web UI is available at <tt>/api/instances</tt>,
                         <tt>/api/all/{command}</tt> and <tt>/api/media</tt>.
                         </p>
+                    </div>
+                </div>
+                <div class="ui-modal-autosave" v-show="modal === 'autosave'">
+                    <div class="form">
+                        <div class="label label-autosave-file">Autosave File:</div>
+                        <div class="field field-autosave-file"
+                            v-tippy="{ placement: 'top', content: 'Current autosave file location.<br/>Saved every 60 minutes and on exit.' }">
+                            <tt>{{ autosaveFile || '(not set)' }}</tt>
+                        </div>
+                        <div class="label label-autosave-change">&nbsp;</div>
+                        <div class="field field-autosave-change">
+                            <div class="input-button" v-on:click="autosaveSetFile()"
+                                v-tippy="{ placement: 'top', content: 'Choose a different file location for autosave.' }">
+                                <span class="icon"><i class="fas fa-folder-open"></i></span>
+                                &nbsp;CHANGE LOCATION
+                            </div>
+                        </div>
+                        <div class="label label-autosave-now">&nbsp;</div>
+                        <div class="field field-autosave-now">
+                            <div class="input-button" v-on:click="autosaveNow()"
+                                v-tippy="{ placement: 'top', content: 'Save a backup right now.' }">
+                                <span class="icon"><i class="fas fa-save"></i></span>
+                                &nbsp;SAVE NOW
+                            </div>
+                        </div>
+                        <div v-if="autosaveLastTime" class="label label-autosave-last">Last saved:</div>
+                        <div v-if="autosaveLastTime" class="field field-autosave-last">
+                            <tt>{{ autosaveLastTime }}</tt>
+                        </div>
+                    </div>
+                    <div class="about">
+                        <b>WebRetriever</b> automatically saves a full backup of all
+                        browser instances and Web UI / API settings to the file shown
+                        above. The backup runs every <b>60 minutes</b> and also on
+                        application exit. The file is in standard YAML format and can
+                        be imported via the <b>IMPORT</b> button to restore instances.
+                        Click <b>CHANGE LOCATION</b> to pick a different file, or
+                        <b>SAVE NOW</b> to trigger an immediate backup.
                     </div>
                 </div>
                 <div class="ui-modal-messages" v-show="modal === 'messages'">

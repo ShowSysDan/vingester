@@ -147,6 +147,8 @@ electron.app.on("ready", async () => {
     const cfgDir = path.join(userData, "Configurations")
     if (!(await pathExists(cfgDir)))
         await mkdirp(cfgDir, { mode: 0o755 })
+    let autosaveFile = store.get("autosave.file", path.join(cfgDir, "autosave.yaml"))
+    let autosaveTimer = null
     const sampleConfigs = [
         { iname: "cfg-sample-test.yaml",   ename: "Sample-Test.yaml" },
         { iname: "cfg-sample-expert.yaml", ename: "Sample-Expert.yaml" },
@@ -526,6 +528,69 @@ electron.app.on("ready", async () => {
         saveConfigs(browsers)
         log.info(`imported browsers configuration (${browsers.length} browser entries)`)
     }
+    const autosaveConfig = async (file) => {
+        let browsers = loadConfigs()
+        browsers = browsers.map((browser) => {
+            delete browser.id
+            return browser
+        })
+        const webuiEnabled = store.get("webui.enabled") ?? false
+        const webuiAddr    = store.get("webui.addr")    ?? "127.0.0.1"
+        const webuiPort    = store.get("webui.port")    ?? "7212"
+        const apiEnabled   = store.get("api.enabled")   ?? false
+        const apiAddr      = store.get("api.addr")      ?? "127.0.0.1"
+        const apiPort      = store.get("api.port")      ?? "7211"
+        let yaml =
+           "%YAML 1.2\n" +
+           "##\n" +
+           "##  WebRetriever Autosave Configuration\n" +
+           `##  Version: WebRetriever ${version.vingester}\n` +
+           `##  Date:    ${moment().format("YYYY-MM-DD HH:mm")}\n` +
+           "##\n" +
+           `##  WebUI:  enabled=${webuiEnabled}  addr=${webuiAddr}  port=${webuiPort}\n` +
+           `##  API:    enabled=${apiEnabled}    addr=${apiAddr}    port=${apiPort}\n` +
+           "##\n" +
+           "\n" +
+           "---\n" +
+           "\n"
+        for (const browser of browsers) {
+            let line = 1
+            for (const field of fields) {
+                yaml += (line++ === 1 ? "-   " : "    ")
+                let value = browser[field.iname]
+                if (field.etype === "boolean" && typeof value !== "boolean")
+                    value = Boolean(value)
+                else if (field.etype === "number" && typeof value !== "number")
+                    value = Number(value)
+                else if (field.etype === "string" && typeof value !== "string")
+                    value = String(value)
+                value = jsYAML.dump(value, {
+                    forceQuotes: true,
+                    quotingType: "\"",
+                    condenseFlow: true,
+                    lineWidth: -1,
+                    indent: 0
+                })
+                value = value.replace(/\r?\n$/, "")
+                yaml += `${(field.ename + ":").padEnd(30, " ")} ${value}\n`
+            }
+            yaml += "\n"
+        }
+        await fs.promises.writeFile(file, yaml, { encoding: "utf8" })
+        log.info(`autosaved configuration (${browsers.length} browser entries) to: ${file}`)
+    }
+    const performAutosave = async () => {
+        if (!autosaveFile) return
+        try {
+            await autosaveConfig(autosaveFile)
+            if (control && !control.isDestroyed())
+                control.webContents.send("autosave-done", { file: autosaveFile, time: moment().format("HH:mm") })
+        }
+        catch (err) {
+            log.error(`autosave failed: ${err.message}`)
+        }
+    }
+
     electron.ipcMain.handle("browsers-export", async (ev) => {
         electron.dialog.showSaveDialog({
             title:       "Choose Export File (YAML)",
@@ -561,6 +626,26 @@ electron.app.on("ready", async () => {
         }).catch(() => {
             return false
         })
+    })
+
+    /*  autosave IPC handlers  */
+    electron.ipcMain.handle("autosave-get-file", () => autosaveFile)
+    electron.ipcMain.handle("autosave-set-file", async () => {
+        const result = await electron.dialog.showSaveDialog(control, {
+            title:       "Choose Autosave File Location (YAML)",
+            filters:     [ { name: "YAML", extensions: [ "yaml" ] } ],
+            defaultPath: autosaveFile || path.join(cfgDir, "autosave.yaml")
+        })
+        if (!result.canceled && result.filePath) {
+            autosaveFile = result.filePath
+            store.set("autosave.file", autosaveFile)
+            control.webContents.send("autosave-file", autosaveFile)
+            return autosaveFile
+        }
+        return null
+    })
+    electron.ipcMain.handle("autosave-now", async () => {
+        await performAutosave()
     })
 
     /*  handle file selection  */
@@ -819,6 +904,7 @@ electron.app.on("ready", async () => {
     /*  send parameters  */
     if (tag !== null)
         control.webContents.send("tag", tag)
+    control.webContents.send("autosave-file", autosaveFile)
 
     /*  toggle GPU hardware acceleration  */
     log.info("send GPU status and provide IPC hook for GPU status change")
@@ -1276,6 +1362,10 @@ electron.app.on("ready", async () => {
         })
     }, 100)
 
+    /*  start 60-minute autosave timer  */
+    log.info("start autosave timer (60-minute interval)")
+    autosaveTimer = setInterval(performAutosave, 60 * 60 * 1000)
+
     /*  register some global shortcuts  */
     electron.globalShortcut.register("Control+Alt+Shift+Escape", () => {
         log.info("catched global hotkey for stopping all browsers")
@@ -1299,11 +1389,18 @@ electron.app.on("ready", async () => {
         log.info("shutting down")
         ev.preventDefault()
 
-        /*  stop timer  */
+        /*  stop usage timer  */
         if (timer !== null) {
             clearTimeout(timer)
             timer = null
         }
+
+        /*  stop autosave timer and perform a final save  */
+        if (autosaveTimer !== null) {
+            clearInterval(autosaveTimer)
+            autosaveTimer = null
+        }
+        await performAutosave()
 
         /*  stop all browsers  */
         await controlBrowser("stop-all", null)
