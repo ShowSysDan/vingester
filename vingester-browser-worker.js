@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -66,7 +66,7 @@ class BrowserWorker {
         this.log.info("starting")
 
         /*  determine window title  */
-        const title = (this.cfg.t == null ? "Vingester" : this.cfg.t)
+        const title = (this.cfg.t == null ? "WebRetriever" : this.cfg.t)
 
         /*  create NDI sender  */
         this.ndiSender = null
@@ -135,8 +135,8 @@ class BrowserWorker {
         /*  capture and send browser audio stream Chromium provides a
             Webm/Matroska/EBML container with embedded(!) OPUS data,
             so we here first have to decode the EBML container chunks  */
-        const ebmlDecoder = new ebml.Decoder()
-        ebmlDecoder.on("data", (data) => {
+        this.ebmlDecoder = new ebml.Decoder()
+        this.ebmlDecoder.on("data", (data) => {
             /*  we receive EBML chunks...  */
             if (data[0] === "tag" && data[1].type === "b" && data[1].name === "SimpleBlock") {
                 /*  ...and just process the data chunks containing the OPUS data  */
@@ -144,15 +144,17 @@ class BrowserWorker {
             }
         })
 
-        /*  receive audio capture data  */
-        electron.ipcRenderer.on("audio-capture", (ev, data) => {
-            ebmlDecoder.write(Buffer.from(data.buffer))
-        })
+        /*  receive audio capture data — store ref so it can be removed in stop()  */
+        this._audioCaptureHandler = (ev, data) => {
+            this.ebmlDecoder.write(Buffer.from(data.buffer))
+        }
+        electron.ipcRenderer.on("audio-capture", this._audioCaptureHandler)
 
-        /*  receive video capture data  */
-        electron.ipcRenderer.on("video-capture", (ev, data, size, ratio, dirty) => {
+        /*  receive video capture data — store ref so it can be removed in stop()  */
+        this._videoCaptureHandler = (ev, data, size, ratio, dirty) => {
             this.processVideo(data, size, ratio, dirty)
-        })
+        }
+        electron.ipcRenderer.on("video-capture", this._videoCaptureHandler)
         this.log.info("started")
     }
 
@@ -165,9 +167,9 @@ class BrowserWorker {
         if (this.opusEncoder !== null)
             this.opusEncoder = null
 
-        /*  destroy NDI timer  */
+        /*  destroy NDI timer (was created with setInterval, must use clearInterval)  */
         if (this.ndiTimer !== null) {
-            clearTimeout(this.ndiTimer)
+            clearInterval(this.ndiTimer)
             this.ndiTimer = null
         }
 
@@ -178,6 +180,22 @@ class BrowserWorker {
         /*  destroy FFmpeg sender  */
         if (this.ffmpeg !== null)
             await this.ffmpeg.stop()
+
+        /*  remove IPC listeners registered in start() to prevent accumulation  */
+        if (this._audioCaptureHandler) {
+            electron.ipcRenderer.off("audio-capture", this._audioCaptureHandler)
+            this._audioCaptureHandler = null
+        }
+        if (this._videoCaptureHandler) {
+            electron.ipcRenderer.off("video-capture", this._videoCaptureHandler)
+            this._videoCaptureHandler = null
+        }
+
+        /*  destroy EBML decoder  */
+        if (this.ebmlDecoder) {
+            this.ebmlDecoder.removeAllListeners()
+            this.ebmlDecoder = null
+        }
 
         this.log.info("stopped")
     }

@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -60,7 +60,7 @@ const support = {
 }
 electron.ipcMain.handle("version", (ev) => { return version })
 electron.ipcMain.handle("support", (ev) => { return support })
-log.info(`starting Vingester: ${version.vingester}`)
+log.info(`starting WebRetriever: ${version.vingester}`)
 log.info(`using Electron: ${version.electron}`)
 log.info(`using Chromium: ${version.chromium}`)
 log.info(`using V8: ${version.v8}`)
@@ -191,8 +191,8 @@ electron.app.on("ready", async () => {
         minWidth:        840,
         minHeight:       575,
         frame:           false,
-        title:           "Vingester",
-        backgroundColor: "#333333",
+        title:           "WebRetriever",
+        backgroundColor: "#0d1117",
         useContentSize:  false,
         webPreferences: {
             zoomFactor:                 display.scaleFactor,
@@ -330,7 +330,7 @@ electron.app.on("ready", async () => {
         }, {
             role: "help",
             submenu: [
-                { label: "More about Vingester", click: openURL("https://vingester.app") }
+                { label: "More about WebRetriever", click: openURL("https://vingester.app") }
             ]
         }
     ]
@@ -397,6 +397,11 @@ electron.app.on("ready", async () => {
     ]
     const sanitizeConfig = (browser) => {
         let changed = 0
+        /*  migrate removed "video" input type to "url" for backward compatibility  */
+        if (browser.it === "video") {
+            browser.it = "url"
+            changed++
+        }
         for (const field of fields) {
             if (browser[field.iname] === undefined) {
                 browser[field.iname] = field.def
@@ -454,8 +459,8 @@ electron.app.on("ready", async () => {
         let yaml =
            "%YAML 1.2\n" +
            "##\n" +
-           "##  Vingester Configuration\n" +
-           `##  Version: Vingester ${version.vingester}\n` +
+           "##  WebRetriever Configuration\n" +
+           `##  Version: WebRetriever ${version.vingester}\n` +
            `##  Date:    ${moment().format("YYYY-MM-DD HH:mm")}\n` +
            "##\n" +
            "\n" +
@@ -1102,6 +1107,11 @@ electron.app.on("ready", async () => {
                 res.status(200).type("text/html; charset=utf-8").send(html)
             }))
 
+            /*  REST API: version info  */
+            this.app.get("/api/version", (req, res) => {
+                res.status(200).json({ version: version.vingester, app: pkg.name })
+            })
+
             /*  REST API: list all instances  */
             this.app.get("/api/instances", (req, res) => {
                 const result = []
@@ -1140,17 +1150,22 @@ electron.app.on("ready", async () => {
                 res.status(201).json({ ok: true, id })
             }))
 
-            /*  REST API: update instance config  */
+            /*  REST API: update instance config — auto-restart if running  */
             this.app.patch("/api/instances/:id", wrap(async (req, res) => {
                 const { id } = req.params
                 if (!browsers[id])
                     return res.status(404).json({ error: "instance not found" })
                 const cfg = { ...browsers[id].cfg, ...(req.body || {}) }
                 sanitizeConfig(cfg)
+                const wasRunning = browsers[id].running()
+                if (wasRunning)
+                    await controlBrowser("stop", id)
                 await controlBrowser("mod", id, cfg)
+                if (wasRunning)
+                    await controlBrowser("start", id)
                 saveBrowsersToStore()
-                log.info(`WebUI: modified browser instance: ${cfg.t}`)
-                res.status(200).json({ ok: true })
+                log.info(`WebUI: modified browser instance: ${cfg.t}${wasRunning ? " (auto-restarted)" : ""}`)
+                res.status(200).json({ ok: true, restarted: wasRunning })
             }))
 
             /*  REST API: delete instance  */

@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 

@@ -4,9 +4,7 @@
     "version": "2.8.0",
     "description": "Ingest Web Contents as Video Streams",
     "author": {
-        "name": "Dr. Ralf S. Engelschall",
-        "email": "rse@engelschall.com",
-        "url": "http://engelschall.com/"
+        "name": "ShowSysDan"
     },
     "keywords": [
         "web",
@@ -81,7 +79,7 @@
         "!dsig"
     ],
     "build": {
-        "appId": "com.engelschall.apps.vingester",
+        "appId": "com.showsysdan.apps.webretriever",
         "productName": "Vingester",
         "asar": true,
         "asarUnpack": [
