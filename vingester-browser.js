@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -211,28 +211,6 @@ img { width: 100%; height: 100%; object-fit: contain; display: block; }
 </body>
 </html>`
         }
-        else if (this.cfg.it === "video") {
-            /*  single video playback (looping)  */
-            const filePath = files[0]
-            const fileUrl = `file://${filePath.replace(/\\/g, "/")}`
-            const ext = path.extname(filePath).toLowerCase().slice(1)
-            const mimeMap = { mp4: "video/mp4", webm: "video/webm", ogg: "video/ogg", mov: "video/mp4" }
-            const mime = mimeMap[ext] || "video/mp4"
-            return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8"/>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
-video { width: 100%; height: 100%; object-fit: contain; display: block; }
-</style>
-</head>
-<body>
-<video src="${fileUrl}" type="${mime}" autoplay loop muted playsinline></video>
-</body>
-</html>`
-        }
         else if (this.cfg.it === "slideshow") {
             /*  slideshow with CSS fade transitions  */
             const intervalMs = Math.max(1, this.cfg.si) * 1000
@@ -328,7 +306,7 @@ img, video {
             show:            false,
             width:           200,
             height:          200,
-            title:           "Vingester Browser Worker",
+            title:           "WebRetriever Browser Worker",
             webPreferences: {
                 devTools:                   (process.env.DEBUG === "2"),
                 backgroundThrottling:       false,
@@ -460,7 +438,7 @@ img, video {
         this.worker = worker
 
         /*  determine window title  */
-        const title = (this.cfg.t == null ? "Vingester" : this.cfg.t)
+        const title = (this.cfg.t == null ? "WebRetriever" : this.cfg.t)
 
         /*  create browser session  */
         let session = electron.session.fromPartition("vingester-browser-content")

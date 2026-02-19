@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -227,7 +227,7 @@ module.exports = class FFmpeg extends EventEmitter {
                     this.emit("fatal", "sorry, the embedded FFmpeg program unfortunately crashes under " +
                         "your particular operating system. Please install a native FFmpeg in your system, " +
                         "ensure that the executable \"ffmpeg\" is in your $PATH and then restart this " +
-                        "Vingester application again, please.")
+                        "WebRetriever application again, please.")
                 }
             }
         })

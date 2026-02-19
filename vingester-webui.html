@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!--
-**  Vingester Web UI Dashboard
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever Web UI Dashboard
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 -->
 <html lang="en">
@@ -58,18 +58,14 @@
             font-size: 15px;
             font-weight: 600;
             color: var(--text);
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             display: flex;
             align-items: center;
-            gap: 7px;
+            gap: 8px;
         }
-        .header-logo .logo-icon {
+        .header-logo .logo-svg {
             width: 22px; height: 22px;
-            background: var(--accent);
-            border-radius: 5px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 11px;
-            color: #fff;
+            color: var(--accent);
             flex-shrink: 0;
         }
         .header-divider { width: 1px; height: 20px; background: var(--border); }
@@ -356,6 +352,16 @@
             font-weight: 600;
             flex: 1;
         }
+        .modal-restart-notice {
+            background: color-mix(in srgb, var(--warning) 12%, transparent);
+            border-bottom: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+            color: var(--warning);
+            font-size: 12px;
+            padding: 7px 20px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
         .modal-close {
             background: none;
             border: none;
@@ -625,21 +631,24 @@
         .upload-hint { font-size: 11px; color: var(--text-subtle); margin-top: 4px; }
         .upload-progress {
             background: var(--surface2);
-            border-radius: 4px;
-            height: 5px;
-            margin-bottom: 6px;
+            border-radius: 6px;
+            height: 8px;
+            margin: 10px 0 4px;
             display: none;
+            overflow: hidden;
+            border: 1px solid var(--border);
         }
         .upload-progress-bar {
             height: 100%;
-            background: var(--accent);
-            border-radius: 4px;
+            background: linear-gradient(90deg, var(--accent), #58a6ff);
+            border-radius: 6px;
             width: 0;
-            transition: width 0.15s;
+            transition: width 0.2s ease;
         }
         .upload-progress-label {
-            font-size: 11px;
-            color: var(--text-subtle);
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
             margin-bottom: 10px;
             display: none;
             white-space: nowrap;
@@ -704,6 +713,8 @@
             bottom: 0;
         }
         #status-bar span { color: var(--text-muted); }
+        .status-spacer { flex: 1; }
+        #status-version { opacity: 0.6; }
 
         /* ── TOAST ───────────────────────────────────────────────── */
         #toast-container {
@@ -742,7 +753,11 @@
 <!-- ── HEADER ──────────────────────────────────────────────────── -->
 <header id="app-header">
     <div class="header-logo">
-        <div class="logo-icon">&#128021;</div>
+        <svg class="logo-svg" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="2" y="3" width="20" height="14" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/>
+            <path d="M8 21h8M12 17v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="M7 9l3 3 2-2 3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
         WebRetriever
     </div>
     <div class="header-divider"></div>
@@ -815,6 +830,8 @@
 <div id="status-bar">
     <span id="status-count">—</span>
     <span id="status-running">—</span>
+    <span class="status-spacer"></span>
+    <span id="status-version"></span>
     <span id="status-time"></span>
 </div>
 
@@ -824,6 +841,10 @@
         <div class="modal-header">
             <div class="modal-title" id="edit-modal-title">Instance</div>
             <button class="modal-close" data-action="closeModal">&times;</button>
+        </div>
+        <div class="modal-restart-notice" id="modal-restart-notice" style="display:none">
+            <svg viewBox="0 0 16 16" fill="currentColor" style="width:13px;height:13px;flex-shrink:0"><path d="M8 3a5 5 0 0 0-4.546 2.914.5.5 0 0 1-.908-.417A6 6 0 0 1 13.934 8H12.5A.5.5 0 0 1 12 7.5V6a.5.5 0 0 1 1 0v.765A6 6 0 0 0 8 2M3.05 7.5A.5.5 0 0 1 3.5 8H4.97a.5.5 0 0 1 0 1H3.5A.5.5 0 0 1 3 8.5v-1A.5.5 0 0 1 3.05 7.5M8 13a5 5 0 0 0 4.546-2.914.5.5 0 0 1 .908.417A6 6 0 0 1 2.066 8H3.5a.5.5 0 0 1 .5.5V10a.5.5 0 0 1-1 0v-.765A6 6 0 0 0 8 14"/></svg>
+            Instance is <strong>running</strong> — saving will automatically stop, apply changes, then restart it.
         </div>
         <div class="modal-tabs">
             <div class="modal-tab active" data-action="switchModalTab" data-tab="source">Source</div>
@@ -853,10 +874,6 @@
                         <div class="radio-btn">
                             <input type="radio" name="inputType" id="it-image"     value="image"     onchange="UI.onInputTypeChange()">
                             <label for="it-image">Image</label>
-                        </div>
-                        <div class="radio-btn">
-                            <input type="radio" name="inputType" id="it-video"     value="video"     onchange="UI.onInputTypeChange()">
-                            <label for="it-video">Video</label>
                         </div>
                         <div class="radio-btn">
                             <input type="radio" name="inputType" id="it-slideshow" value="slideshow" onchange="UI.onInputTypeChange()">
@@ -1483,6 +1500,9 @@
         document.getElementById("edit-modal-title").textContent = "Edit Instance"
         document.getElementById("btn-delete-inst").style.display = ""
         populateForm(inst.cfg || {})
+        // Show restart notice if instance is currently running
+        const notice = document.getElementById("modal-restart-notice")
+        if (notice) notice.style.display = inst.running ? "" : "none"
         // Reset to first tab
         document.querySelectorAll(".modal-tab").forEach((t, i) => t.classList.toggle("active", i === 0))
         document.querySelectorAll(".modal-tab-panel").forEach((p, i) => p.classList.toggle("active", i === 0))
@@ -1493,6 +1513,8 @@
         editingId = null
         document.getElementById("edit-modal-title").textContent = "Add Instance"
         document.getElementById("btn-delete-inst").style.display = "none"
+        const notice = document.getElementById("modal-restart-notice")
+        if (notice) notice.style.display = "none"
         populateForm({})
         document.querySelectorAll(".modal-tab").forEach((t, i) => t.classList.toggle("active", i === 0))
         document.querySelectorAll(".modal-tab-panel").forEach((p, i) => p.classList.toggle("active", i === 0))
@@ -1642,7 +1664,7 @@
                     body: JSON.stringify(cfg)
                 })
                 if (r.ok) {
-                    toast("Saved", "success")
+                    toast(r.restarted ? "Saved & restarted" : "Saved", "success")
                     closeModal()
                     await loadInstances()
                 } else {
@@ -1975,6 +1997,13 @@
         document.getElementById("status-time").textContent =
             new Date().toLocaleTimeString()
     }, 1000)
+    /*  fetch and display app version in the status bar  */
+    api("/api/version").then(r => {
+        if (r && r.version) {
+            const el = document.getElementById("status-version")
+            if (el) el.textContent = "v" + r.version
+        }
+    }).catch(() => {})
 
 })();
 </script>

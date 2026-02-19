@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -31,6 +31,7 @@ const Update      = require("./vingester-update.js")
 const util        = require("./vingester-util.js")
 const log         = require("./vingester-log.js").scope("main")
 const pkg         = require("./package.json")
+const syslog      = require("./vingester-syslog.js")
 
 /*  get rid of unnecessary security warnings when debugging  */
 if (typeof process.env.DEBUG !== "undefined") {
@@ -60,7 +61,8 @@ const support = {
 }
 electron.ipcMain.handle("version", (ev) => { return version })
 electron.ipcMain.handle("support", (ev) => { return support })
-log.info(`starting Vingester: ${version.vingester}`)
+log.info(`starting WebRetriever: ${version.vingester}`)
+syslog.info("app", `starting WebRetriever v${version.vingester}`)
 log.info(`using Electron: ${version.electron}`)
 log.info(`using Chromium: ${version.chromium}`)
 log.info(`using V8: ${version.v8}`)
@@ -124,6 +126,13 @@ if (grandiose.isSupportedCPU())
 
 /*  initialize store  */
 const store = new Store()
+
+/*  initialize syslog from stored settings  */
+syslog.configure({
+    enabled: store.get("syslog.enabled", false),
+    ip:      store.get("syslog.ip",      ""),
+    port:    store.get("syslog.port",    514)
+})
 
 /*  optionally and early disable GPU hardware acceleration  */
 if (!store.get("gpu")) {
@@ -191,8 +200,8 @@ electron.app.on("ready", async () => {
         minWidth:        840,
         minHeight:       575,
         frame:           false,
-        title:           "Vingester",
-        backgroundColor: "#333333",
+        title:           "WebRetriever",
+        backgroundColor: "#0d1117",
         useContentSize:  false,
         webPreferences: {
             zoomFactor:                 display.scaleFactor,
@@ -330,7 +339,7 @@ electron.app.on("ready", async () => {
         }, {
             role: "help",
             submenu: [
-                { label: "More about Vingester", click: openURL("https://vingester.app") }
+                { label: "More about WebRetriever", click: openURL("https://vingester.app") }
             ]
         }
     ]
@@ -397,6 +406,11 @@ electron.app.on("ready", async () => {
     ]
     const sanitizeConfig = (browser) => {
         let changed = 0
+        /*  migrate removed "video" input type to "url" for backward compatibility  */
+        if (browser.it === "video") {
+            browser.it = "url"
+            changed++
+        }
         for (const field of fields) {
             if (browser[field.iname] === undefined) {
                 browser[field.iname] = field.def
@@ -413,9 +427,11 @@ electron.app.on("ready", async () => {
         }
         return changed
     }
+    let configVersion = 0
     const saveConfigs = (browsers) => {
         browsers = JSON.stringify(browsers)
         store.set("browsers", browsers)
+        configVersion++
     }
     const loadConfigs = () => {
         let changed = 0
@@ -435,6 +451,7 @@ electron.app.on("ready", async () => {
     electron.ipcMain.handle("browsers-load", async (ev) => {
         return loadConfigs()
     })
+    electron.ipcMain.handle("configs-version", () => configVersion)
     electron.ipcMain.handle("browsers-save", async (ev, browsers) => {
         saveConfigs(browsers)
     })
@@ -451,8 +468,8 @@ electron.app.on("ready", async () => {
         let yaml =
            "%YAML 1.2\n" +
            "##\n" +
-           "##  Vingester Configuration\n" +
-           `##  Version: Vingester ${version.vingester}\n` +
+           "##  WebRetriever Configuration\n" +
+           `##  Version: WebRetriever ${version.vingester}\n` +
            `##  Date:    ${moment().format("YYYY-MM-DD HH:mm")}\n` +
            "##\n" +
            "\n" +
@@ -747,16 +764,20 @@ electron.app.on("ready", async () => {
         else if (action === "add") {
             /*  add browser configuration  */
             browsers[id] = new Browser(log, id, cfg, control, FFmpeg.binary, mediaDir)
+            syslog.info("instance", `added: "${cfg.t}" (id=${id})`)
         }
         else if (action === "mod") {
             /*  modify browser configuration  */
             browsers[id].reconfigure(cfg)
+            syslog.info("instance", `modified: "${cfg.t}" (id=${id})`)
         }
         else if (action === "del") {
             /*  delete browser configuration  */
+            const title = browsers[id]?.cfg?.t || id
             if (browsers[id] !== undefined && browsers[id].running())
                 await controlBrowser("stop", id)
             delete browsers[id]
+            syslog.info("instance", `deleted: "${title}" (id=${id})`)
         }
         else if (action === "start-all") {
             /*  start all browsers  */
@@ -793,10 +814,13 @@ electron.app.on("ready", async () => {
                 throw new Error("browser configuration not valid")
             control.webContents.send("browser-start", id)
             const success = await browser.start()
-            if (success)
+            if (success) {
                 control.webContents.send("browser-started", id)
+                syslog.info("instance", `started: "${browser.cfg.t}" (id=${id})`)
+            }
             else {
                 control.webContents.send("browser-failed", id)
+                syslog.error("instance", `start failed: "${browser.cfg.t}" (id=${id})`)
                 browser.stop()
             }
         }
@@ -810,6 +834,7 @@ electron.app.on("ready", async () => {
             control.webContents.send("browser-reload", id)
             browser.reload()
             control.webContents.send("browser-reloaded", id)
+            syslog.info("instance", `reloaded: "${browser.cfg.t}" (id=${id})`)
         }
         else if (action === "stop") {
             /*  stop a particular browser  */
@@ -821,6 +846,7 @@ electron.app.on("ready", async () => {
             control.webContents.send("browser-stop", id)
             await browser.stop()
             control.webContents.send("browser-stopped", id)
+            syslog.info("instance", `stopped: "${browser.cfg.t}" (id=${id})`)
         }
         else if (action === "clear") {
             /*  clear a particular browser  */
@@ -1079,11 +1105,13 @@ electron.app.on("ready", async () => {
             })
 
             /*  helper: persist in-memory browsers to store and notify Control UI  */
+            const debouncedAutosave = debounce(10 * 1000, performAutosave)
             const saveBrowsersToStore = () => {
                 const cfgArray = Object.keys(browsers).map((bid) => ({ id: bid, ...browsers[bid].cfg }))
                 saveConfigs(cfgArray)
                 if (control && !control.isDestroyed())
                     control.webContents.send("browsers-refresh")
+                debouncedAutosave()
             }
 
             /*  async route wrapper for error propagation  */
@@ -1096,6 +1124,11 @@ electron.app.on("ready", async () => {
                 res.set("Cache-Control", "no-store")
                 res.status(200).type("text/html; charset=utf-8").send(html)
             }))
+
+            /*  REST API: version info  */
+            this.app.get("/api/version", (req, res) => {
+                res.status(200).json({ version: version.vingester, app: pkg.name })
+            })
 
             /*  REST API: list all instances  */
             this.app.get("/api/instances", (req, res) => {
@@ -1135,17 +1168,24 @@ electron.app.on("ready", async () => {
                 res.status(201).json({ ok: true, id })
             }))
 
-            /*  REST API: update instance config  */
+            /*  REST API: update instance config — auto-restart if running  */
             this.app.patch("/api/instances/:id", wrap(async (req, res) => {
                 const { id } = req.params
                 if (!browsers[id])
                     return res.status(404).json({ error: "instance not found" })
                 const cfg = { ...browsers[id].cfg, ...(req.body || {}) }
                 sanitizeConfig(cfg)
+                const wasRunning = browsers[id].running()
+                if (wasRunning)
+                    await controlBrowser("stop", id)
                 await controlBrowser("mod", id, cfg)
+                if (wasRunning)
+                    await controlBrowser("start", id)
                 saveBrowsersToStore()
-                log.info(`WebUI: modified browser instance: ${cfg.t}`)
-                res.status(200).json({ ok: true })
+                log.info(`WebUI: modified browser instance: ${cfg.t}${wasRunning ? " (auto-restarted)" : ""}`)
+                if (wasRunning)
+                    syslog.info("webui", `auto-restarted after edit: "${cfg.t}" (id=${id})`)
+                res.status(200).json({ ok: true, restarted: wasRunning })
             }))
 
             /*  REST API: delete instance  */
@@ -1274,7 +1314,9 @@ electron.app.on("ready", async () => {
                 }
                 await fs.promises.rename(req.file.path, destPath)
 
+                const sizeKB = Math.round(req.file.size / 1024)
                 log.info(`WebUI: uploaded media file: ${safeName} (original: ${req.file.originalname})`)
+                syslog.info("media", `uploaded: "${safeName}" (${sizeKB} KB, original: ${req.file.originalname})`)
                 res.status(200).json({ ok: true, name: safeName, url: `/media/${safeName}` })
             }))
 
@@ -1347,9 +1389,31 @@ electron.app.on("ready", async () => {
         }
     })
 
+    /*  syslog IPC handlers  */
+    electron.ipcMain.handle("syslog-get", () => ({
+        enabled: store.get("syslog.enabled", false),
+        ip:      store.get("syslog.ip",      ""),
+        port:    store.get("syslog.port",    514)
+    }))
+    electron.ipcMain.handle("syslog-set", async (ev, cfg) => {
+        store.set("syslog.enabled", cfg.enabled)
+        store.set("syslog.ip",      cfg.ip)
+        store.set("syslog.port",    cfg.port)
+        syslog.configure({ enabled: cfg.enabled, ip: cfg.ip, port: cfg.port })
+        syslog.info("app", `syslog configured: ${cfg.enabled ? `${cfg.ip}:${cfg.port}` : "disabled"}`)
+        control.webContents.send("syslog", { enabled: cfg.enabled, ip: cfg.ip, port: cfg.port })
+    })
+    /*  send initial syslog state to control UI  */
+    control.webContents.send("syslog", {
+        enabled: store.get("syslog.enabled", false),
+        ip:      store.get("syslog.ip",      ""),
+        port:    store.get("syslog.port",    514)
+    })
+
     /*  collect metrics  */
     log.info("start usage gathering timer")
     const usages = new util.WeightedAverage(20, 5)
+    let cpuHighCount = 0
     let timer = setInterval(() => {
         if (timer === null)
             return
@@ -1359,12 +1423,21 @@ electron.app.on("ready", async () => {
             usage += metric.cpu.percentCPUUsage
         usages.record(usage, (stat) => {
             control.webContents.send("usage", stat.avg)
+            /*  alert via syslog if CPU exceeds 80% for 3 consecutive readings (~30s)  */
+            if (stat.avg >= 80) {
+                cpuHighCount++
+                if (cpuHighCount === 3)
+                    syslog.warn("system", `high CPU usage: ${Math.round(stat.avg)}%`)
+            }
+            else {
+                cpuHighCount = 0
+            }
         })
     }, 100)
 
-    /*  start 60-minute autosave timer  */
-    log.info("start autosave timer (60-minute interval)")
-    autosaveTimer = setInterval(performAutosave, 60 * 60 * 1000)
+    /*  start 5-minute autosave timer  */
+    log.info("start autosave timer (5-minute interval)")
+    autosaveTimer = setInterval(performAutosave, 5 * 60 * 1000)
 
     /*  register some global shortcuts  */
     electron.globalShortcut.register("Control+Alt+Shift+Escape", () => {

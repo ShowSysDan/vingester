@@ -1,6 +1,6 @@
 /*
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 */
 
@@ -75,6 +75,9 @@ const app = Vue.createApp({
             webuiEnabled:      false,
             webuiAddr:         "127.0.0.1",
             webuiPort:         "7212",
+            syslogEnabled:     false,
+            syslogIp:          "",
+            syslogPort:        "514",
             autosaveFile:      null,
             autosaveLastTime:  null
         }
@@ -107,20 +110,56 @@ const app = Vue.createApp({
         electron.ipcRenderer.on("browsers-refresh", async (ev) => {
             /*  Web UI added/modified/deleted an instance — sync Vue state without
                 pruning or restarting any running browsers  */
-            const updated = await electron.ipcRenderer.invoke("browsers-load")
-            const existingIds = new Set(this.browsers.map(b => b.id))
-            const updatedIds  = new Set(updated.map(b => b.id))
-            for (const browser of updated)
-                if (!existingIds.has(browser.id)) {
-                    this.resetState(browser.id)
-                    this.validateState(browser)
-                }
-            for (const browser of this.browsers)
-                if (!updatedIds.has(browser.id))
-                    this.deleteState(browser.id)
-            this.browsers = updated
-            this.renderDisplayIcons()
+            try {
+                /*  cancel any pending Control UI save to prevent it from overwriting
+                    WebUI changes to the store before this refresh completes  */
+                this.save.cancel()
+                const updated = await electron.ipcRenderer.invoke("browsers-load")
+                const existingIds = new Set(this.browsers.map(b => b.id))
+                const updatedIds  = new Set(updated.map(b => b.id))
+                for (const browser of updated)
+                    if (!existingIds.has(browser.id)) {
+                        this.resetState(browser.id)
+                        this.validateState(browser)
+                    }
+                for (const browser of this.browsers)
+                    if (!updatedIds.has(browser.id))
+                        this.deleteState(browser.id)
+                this.browsers = updated
+                this.renderDisplayIcons()
+            }
+            catch (err) {
+                log.error(`browsers-refresh sync failed: ${err.message}`)
+            }
         })
+        /*  fallback: poll config version every 10s and sync if main process has newer data;
+            this catches any missed or failed browsers-refresh events  */
+        this._lastConfigVersion = -1
+        setInterval(async () => {
+            try {
+                const v = await electron.ipcRenderer.invoke("configs-version")
+                if (v !== this._lastConfigVersion) {
+                    this._lastConfigVersion = v
+                    const updated = await electron.ipcRenderer.invoke("browsers-load")
+                    if (JSON.stringify(updated) !== JSON.stringify(this.browsers)) {
+                        this.save.cancel()
+                        const existingIds = new Set(this.browsers.map(b => b.id))
+                        const updatedIds  = new Set(updated.map(b => b.id))
+                        for (const browser of updated)
+                            if (!existingIds.has(browser.id)) {
+                                this.resetState(browser.id)
+                                this.validateState(browser)
+                            }
+                        for (const browser of this.browsers)
+                            if (!updatedIds.has(browser.id))
+                                this.deleteState(browser.id)
+                        this.browsers = updated
+                        this.renderDisplayIcons()
+                    }
+                }
+            }
+            catch (err) { /* silently ignore transient polling errors */ }
+        }, 10 * 1000)
         electron.ipcRenderer.on("browser-start", (ev, id) => {
             log.info("browser-start", id)
             this.resetState(id)
@@ -236,6 +275,17 @@ const app = Vue.createApp({
             this.webuiEnabled = webui.enabled
             this.webuiAddr    = webui.addr
             this.webuiPort    = webui.port
+        })
+        electron.ipcRenderer.on("syslog", (ev, cfg) => {
+            this.syslogEnabled = cfg.enabled
+            this.syslogIp      = cfg.ip
+            this.syslogPort    = String(cfg.port)
+        })
+        /*  request initial syslog state  */
+        electron.ipcRenderer.invoke("syslog-get").then((cfg) => {
+            this.syslogEnabled = cfg.enabled
+            this.syslogIp      = cfg.ip
+            this.syslogPort    = String(cfg.port)
         })
         electron.ipcRenderer.on("autosave-file", (ev, file) => {
             this.autosaveFile = file
@@ -524,6 +574,14 @@ const app = Vue.createApp({
                 enabled: this.webuiEnabled,
                 addr:    this.webuiAddr,
                 port:    this.webuiPort
+            })
+        },
+        toggleSyslog () {
+            this.syslogEnabled = !this.syslogEnabled
+            electron.ipcRenderer.invoke("syslog-set", {
+                enabled: this.syslogEnabled,
+                ip:      this.syslogIp,
+                port:    parseInt(this.syslogPort, 10) || 514
             })
         },
         async autosaveSetFile () {

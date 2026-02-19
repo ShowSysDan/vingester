@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <!--
-**  Vingester ~ Ingest Web Contents as Video Streams
-**  Copyright (c) 2021-2025 Dr. Ralf S. Engelschall <rse@engelschall.com>
+**  WebRetriever ~ Ingest Web Contents as Video Streams
+**  Based on Vingester (c) 2021-2025 Dr. Ralf S. Engelschall
 **  Licensed under GPL 3.0 <https://spdx.org/licenses/GPL-3.0-only>
 -->
 <html>
     <head>
         <!-- application title -->
-        <title>Vingester</title>
+        <title>WebRetriever</title>
 
         <!-- general meta-information -->
         <meta charset="UTF-8"/>
@@ -42,9 +42,9 @@
             <div class="ui-head">
                 <div class="row row-1">
                     <div class="row-left">
-                        <img class="title-icon" src="vingester-icon.png" alt="Vingester"/>
+                        <img class="title-icon" src="vingester-icon.png" alt="WebRetriever"/>
                         <div class="title-text">
-                            Vingester
+                            WebRetriever
                         </div>
                         <div class="title-subtext">
                             &mdash; INGEST WEB CONTENTS AS VIDEO STREAMS
@@ -66,6 +66,13 @@
                                 <span class="icon-stack">
                                     <span class="icon"><i class="fas fa-circle"></i></span>
                                     <span class="icon"><i class="fas fa-desktop" data-fa-transform="shrink-7"></i></span>
+                                </span>
+                            </div>
+                            <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>syslog settings.' }"
+                                v-on:click="modalToggle('syslog')">
+                                <span class="icon-stack">
+                                    <span class="icon"><i class="fas fa-circle"></i></span>
+                                    <span class="icon"><i class="fas fa-network-wired" data-fa-transform="shrink-7"></i></span>
                                 </span>
                             </div>
                             <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>autosave settings.' }"
@@ -267,7 +274,7 @@
                         If enabled, <b>Vingester</b> serves a <i>Web UI Dashboard</i> on the configured
                         address and port. Open it in any browser for a live overview of all instances,
                         start/stop/reload controls, and a <i>Media Manager</i> for uploading images
-                        and videos used by image, video and slideshow input types.
+                        and images used by image and slideshow input types.
                         <p>
                         Access the Web UI at:
                         </p>
@@ -280,6 +287,43 @@
                         <p>
                         The REST API for the Web UI is available at <tt>/api/instances</tt>,
                         <tt>/api/all/{command}</tt> and <tt>/api/media</tt>.
+                        </p>
+                    </div>
+                </div>
+                <div class="ui-modal-syslog" v-show="modal === 'syslog'">
+                    <div class="form">
+                        <div class="label label-syslog">Syslog Enabled:</div>
+                        <div class="field field-syslog"
+                            v-tippy="{ placement: 'top', content: 'Click to ' + (syslogEnabled ? 'disable' : 'enable') + ' UDP syslog.<br/>Events are sent when instances start, stop, or are edited.' }">
+                            <div class="toggle" v-on:click="toggleSyslog()">
+                                <div class="toggle-option" v-bind:class="{ selected:  syslogEnabled }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
+                                <div class="toggle-option" v-bind:class="{ selected: !syslogEnabled }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
+                            </div>
+                        </div>
+                        <div class="label label-syslog-ip">Syslog IP:</div>
+                        <div class="field field-syslog-ip"
+                            v-tippy="{ placement: 'top', content: 'IP address of your syslog server (UDP).' }">
+                            <input type="text" v-model="syslogIp" placeholder="192.168.1.100"
+                                v-bind:class="{ disabled: syslogEnabled }"
+                                v-bind:disabled="syslogEnabled">
+                        </div>
+                        <div class="label label-syslog-port">UDP Port:</div>
+                        <div class="field field-syslog-port"
+                            v-tippy="{ placement: 'top', content: 'UDP port of your syslog server (usually 514).' }">
+                            <input type="text" v-model="syslogPort" placeholder="514"
+                                v-bind:class="{ disabled: syslogEnabled }"
+                                v-bind:disabled="syslogEnabled">
+                        </div>
+                    </div>
+                    <div class="about">
+                        When enabled, <b>WebRetriever</b> sends RFC 3164 UDP syslog messages
+                        to the configured server for the following events:
+                        instance add / start / stop / reload / edit / delete,
+                        auto-restart after Web UI edit, media file upload,
+                        application startup, and high CPU usage (&gt;80%).
+                        <p>
+                        Any standard syslog receiver (syslog-ng, rsyslog, Graylog, etc.)
+                        can collect these messages on facility <tt>local0</tt>.
                         </p>
                     </div>
                 </div>
@@ -337,34 +381,31 @@
                 <div class="ui-modal-info" v-show="modal === 'info'">
                     <div class="about">
                         <p>
-                        <a href="https://vingester.app/" v-on:click="openURL">Vingester</a> (<b>V</b>ideo <b>ingester</b>) is a small,
-                        <a href="https://spdx.org/licenses/GPL-3.0-only" v-on:click="openURL">Open Source licensed</a>, and
+                        <b>WebRetriever</b> is an <a href="https://spdx.org/licenses/GPL-3.0-only" v-on:click="openURL">Open Source</a>,
                         <a href="https://www.electronjs.org/" v-on:click="openURL">Electron</a>-based desktop
-                        application for use under Windows, macOS or Linux to run multiple
+                        application for Windows, macOS and Linux. It runs multiple
                         <a href="https://www.chromium.org/" v-on:click="openURL">Chromium</a>-based
-                        Web browser instances and ingesting their rendered Web Contents as screen/window-captured,
+                        browser instances and ingests their rendered content as
                         <a href="https://ndi.tv" v-on:click="openURL">NDI&reg;</a>-multicasted or
                         <a href="https://ffmpeg.org" v-on:click="openURL">FFmpeg</a>-based
-                        video streams for further use in local or remote video mixing applications or for local recording.
+                        video streams for use in local or remote video mixing applications.
                         </p>
                         <p>
-                        Although not technically tied to it, the primary use-case of Vingester is to ingest
-                        the individual meeting participants of the awesome WebRTC-based <a href="https://vdo.ninja" v-on:click="openURL">VDO.Ninja</a> solution as
-                        individual NDI-based video-streams into the mixing application <a href="https://obsproject.com" v-on:click="openURL">OBS Studio</a>
-                        in order to reduce performance drains within OBS Studio. The VDO.Ninja URLs
-                        of the ingested video-streams can be generated best with the opinionated companion tool
-                        <a href="https://vingester.app/vdon/" v-on:click="openURL">VDO.Ninja Trampoline</a>.
+                        A common use case is ingesting individual
+                        <a href="https://vdo.ninja" v-on:click="openURL">VDO.Ninja</a> participants as
+                        individual NDI streams into <a href="https://obsproject.com" v-on:click="openURL">OBS Studio</a>
+                        to reduce CPU load inside OBS.
                         </p>
                     </div>
                     <div class="about-2">
                         <div class="logo">
-                            <img class="icon" src="vingester-icon.png" alt="Vingester"/>
-                            <div class="name"><a href="https://vingester.app" v-on:click="openURL">Vingester</a></div>
+                            <img class="icon" src="vingester-icon.png" alt="WebRetriever"/>
+                            <div class="name">WebRetriever</div>
                         </div>
-                        <div class="version"><a v-bind:href="'https://github.com/rse/vingester/releases/tag/' + version.vingester" v-on:click="openURL">{{version.vingester}}</a></div>
-                        <div class="url"><a href="https://vingester.app" v-on:click="openURL">https://vingester.app</a></div>
+                        <div class="version">{{version.vingester}}</div>
+                        <div class="url">WebRetriever</div>
                         <div class="copyright">
-                            Copyright &copy; 2021-2022 <a href="https://engelschall.com" v-on:click="openURL">Dr. Ralf S. Engelschall</a><br/>
+                            Based on Vingester &copy; 2021-2025 Dr. Ralf S. Engelschall<br/>
                             Licensed under <a href="https://spdx.org/licenses/GPL-3.0-only" v-on:click="openURL">GPL 3.0</a>
                         </div>
                         <table class="versions">
@@ -692,11 +733,10 @@
                                         <div class="group">INPUT:</div>
                                         <div class="label">Type:</div>
                                         <div class="field"
-                                            v-tippy="{ placement: 'top', content: 'Select input source type: URL for web content,<br/>Image for a still image file, Video for a looping video,<br/>or Slideshow for multiple images with fade transitions.' }">
-                                            <div class="toggle" v-on:click="toggle(browser, 'it', [ 'url', 'image', 'video', 'slideshow' ])">
+                                            v-tippy="{ placement: 'top', content: 'Select input source type: URL for web content,<br/>Image for a still image file,<br/>or Slideshow for multiple images with fade transitions.' }">
+                                            <div class="toggle" v-on:click="toggle(browser, 'it', [ 'url', 'image', 'slideshow' ])">
                                                 <div class="toggle-option" v-bind:class="{ selected: browser.it === 'url'       }"><span class="icon"><i class="fas fa-globe"></i></span> URL</div>
                                                 <div class="toggle-option" v-bind:class="{ selected: browser.it === 'image'     }"><span class="icon"><i class="fas fa-image"></i></span> Image</div>
-                                                <div class="toggle-option" v-bind:class="{ selected: browser.it === 'video'     }"><span class="icon"><i class="fas fa-film"></i></span> Video</div>
                                                 <div class="toggle-option" v-bind:class="{ selected: browser.it === 'slideshow' }"><span class="icon"><i class="fas fa-images"></i></span> Slideshow</div>
                                             </div>
                                         </div>
@@ -711,11 +751,11 @@
                                                 v-bind:disabled="running[browser.id]">
                                         </div>
                                     </div>
-                                    <div class="row" v-show="!browser._ && (browser.it === 'image' || browser.it === 'video')">
+                                    <div class="row" v-show="!browser._ && browser.it === 'image'">
                                         <div class="group"></div>
                                         <div class="label">File:</div>
                                         <div class="field field-url"
-                                            v-tippy="{ placement: 'top', content: 'Path to the image or video file to display.' }">
+                                            v-tippy="{ placement: 'top', content: 'Path to the image file to display.' }">
                                             <input type="text" v-model="browser.if" v-on:keyup="changed(browser)"
                                                 v-bind:class="{ disabled: running[browser.id] }"
                                                 v-bind:disabled="running[browser.id]">
