@@ -75,6 +75,9 @@ const app = Vue.createApp({
             webuiEnabled:      false,
             webuiAddr:         "127.0.0.1",
             webuiPort:         "7212",
+            syslogEnabled:     false,
+            syslogIp:          "",
+            syslogPort:        "514",
             autosaveFile:      null,
             autosaveLastTime:  null
         }
@@ -272,6 +275,17 @@ const app = Vue.createApp({
             this.webuiEnabled = webui.enabled
             this.webuiAddr    = webui.addr
             this.webuiPort    = webui.port
+        })
+        electron.ipcRenderer.on("syslog", (ev, cfg) => {
+            this.syslogEnabled = cfg.enabled
+            this.syslogIp      = cfg.ip
+            this.syslogPort    = String(cfg.port)
+        })
+        /*  request initial syslog state  */
+        electron.ipcRenderer.invoke("syslog-get").then((cfg) => {
+            this.syslogEnabled = cfg.enabled
+            this.syslogIp      = cfg.ip
+            this.syslogPort    = String(cfg.port)
         })
         electron.ipcRenderer.on("autosave-file", (ev, file) => {
             this.autosaveFile = file
@@ -560,6 +574,14 @@ const app = Vue.createApp({
                 enabled: this.webuiEnabled,
                 addr:    this.webuiAddr,
                 port:    this.webuiPort
+            })
+        },
+        toggleSyslog () {
+            this.syslogEnabled = !this.syslogEnabled
+            electron.ipcRenderer.invoke("syslog-set", {
+                enabled: this.syslogEnabled,
+                ip:      this.syslogIp,
+                port:    parseInt(this.syslogPort, 10) || 514
             })
         },
         async autosaveSetFile () {

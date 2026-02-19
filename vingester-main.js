@@ -31,6 +31,7 @@ const Update      = require("./vingester-update.js")
 const util        = require("./vingester-util.js")
 const log         = require("./vingester-log.js").scope("main")
 const pkg         = require("./package.json")
+const syslog      = require("./vingester-syslog.js")
 
 /*  get rid of unnecessary security warnings when debugging  */
 if (typeof process.env.DEBUG !== "undefined") {
@@ -61,6 +62,7 @@ const support = {
 electron.ipcMain.handle("version", (ev) => { return version })
 electron.ipcMain.handle("support", (ev) => { return support })
 log.info(`starting WebRetriever: ${version.vingester}`)
+syslog.info("app", `starting WebRetriever v${version.vingester}`)
 log.info(`using Electron: ${version.electron}`)
 log.info(`using Chromium: ${version.chromium}`)
 log.info(`using V8: ${version.v8}`)
@@ -124,6 +126,13 @@ if (grandiose.isSupportedCPU())
 
 /*  initialize store  */
 const store = new Store()
+
+/*  initialize syslog from stored settings  */
+syslog.configure({
+    enabled: store.get("syslog.enabled", false),
+    ip:      store.get("syslog.ip",      ""),
+    port:    store.get("syslog.port",    514)
+})
 
 /*  optionally and early disable GPU hardware acceleration  */
 if (!store.get("gpu")) {
@@ -755,16 +764,20 @@ electron.app.on("ready", async () => {
         else if (action === "add") {
             /*  add browser configuration  */
             browsers[id] = new Browser(log, id, cfg, control, FFmpeg.binary, mediaDir)
+            syslog.info("instance", `added: "${cfg.t}" (id=${id})`)
         }
         else if (action === "mod") {
             /*  modify browser configuration  */
             browsers[id].reconfigure(cfg)
+            syslog.info("instance", `modified: "${cfg.t}" (id=${id})`)
         }
         else if (action === "del") {
             /*  delete browser configuration  */
+            const title = browsers[id]?.cfg?.t || id
             if (browsers[id] !== undefined && browsers[id].running())
                 await controlBrowser("stop", id)
             delete browsers[id]
+            syslog.info("instance", `deleted: "${title}" (id=${id})`)
         }
         else if (action === "start-all") {
             /*  start all browsers  */
@@ -801,10 +814,13 @@ electron.app.on("ready", async () => {
                 throw new Error("browser configuration not valid")
             control.webContents.send("browser-start", id)
             const success = await browser.start()
-            if (success)
+            if (success) {
                 control.webContents.send("browser-started", id)
+                syslog.info("instance", `started: "${browser.cfg.t}" (id=${id})`)
+            }
             else {
                 control.webContents.send("browser-failed", id)
+                syslog.error("instance", `start failed: "${browser.cfg.t}" (id=${id})`)
                 browser.stop()
             }
         }
@@ -818,6 +834,7 @@ electron.app.on("ready", async () => {
             control.webContents.send("browser-reload", id)
             browser.reload()
             control.webContents.send("browser-reloaded", id)
+            syslog.info("instance", `reloaded: "${browser.cfg.t}" (id=${id})`)
         }
         else if (action === "stop") {
             /*  stop a particular browser  */
@@ -829,6 +846,7 @@ electron.app.on("ready", async () => {
             control.webContents.send("browser-stop", id)
             await browser.stop()
             control.webContents.send("browser-stopped", id)
+            syslog.info("instance", `stopped: "${browser.cfg.t}" (id=${id})`)
         }
         else if (action === "clear") {
             /*  clear a particular browser  */
@@ -1165,6 +1183,8 @@ electron.app.on("ready", async () => {
                     await controlBrowser("start", id)
                 saveBrowsersToStore()
                 log.info(`WebUI: modified browser instance: ${cfg.t}${wasRunning ? " (auto-restarted)" : ""}`)
+                if (wasRunning)
+                    syslog.info("webui", `auto-restarted after edit: "${cfg.t}" (id=${id})`)
                 res.status(200).json({ ok: true, restarted: wasRunning })
             }))
 
@@ -1294,7 +1314,9 @@ electron.app.on("ready", async () => {
                 }
                 await fs.promises.rename(req.file.path, destPath)
 
+                const sizeKB = Math.round(req.file.size / 1024)
                 log.info(`WebUI: uploaded media file: ${safeName} (original: ${req.file.originalname})`)
+                syslog.info("media", `uploaded: "${safeName}" (${sizeKB} KB, original: ${req.file.originalname})`)
                 res.status(200).json({ ok: true, name: safeName, url: `/media/${safeName}` })
             }))
 
@@ -1367,9 +1389,31 @@ electron.app.on("ready", async () => {
         }
     })
 
+    /*  syslog IPC handlers  */
+    electron.ipcMain.handle("syslog-get", () => ({
+        enabled: store.get("syslog.enabled", false),
+        ip:      store.get("syslog.ip",      ""),
+        port:    store.get("syslog.port",    514)
+    }))
+    electron.ipcMain.handle("syslog-set", async (ev, cfg) => {
+        store.set("syslog.enabled", cfg.enabled)
+        store.set("syslog.ip",      cfg.ip)
+        store.set("syslog.port",    cfg.port)
+        syslog.configure({ enabled: cfg.enabled, ip: cfg.ip, port: cfg.port })
+        syslog.info("app", `syslog configured: ${cfg.enabled ? `${cfg.ip}:${cfg.port}` : "disabled"}`)
+        control.webContents.send("syslog", { enabled: cfg.enabled, ip: cfg.ip, port: cfg.port })
+    })
+    /*  send initial syslog state to control UI  */
+    control.webContents.send("syslog", {
+        enabled: store.get("syslog.enabled", false),
+        ip:      store.get("syslog.ip",      ""),
+        port:    store.get("syslog.port",    514)
+    })
+
     /*  collect metrics  */
     log.info("start usage gathering timer")
     const usages = new util.WeightedAverage(20, 5)
+    let cpuHighCount = 0
     let timer = setInterval(() => {
         if (timer === null)
             return
@@ -1379,6 +1423,15 @@ electron.app.on("ready", async () => {
             usage += metric.cpu.percentCPUUsage
         usages.record(usage, (stat) => {
             control.webContents.send("usage", stat.avg)
+            /*  alert via syslog if CPU exceeds 80% for 3 consecutive readings (~30s)  */
+            if (stat.avg >= 80) {
+                cpuHighCount++
+                if (cpuHighCount === 3)
+                    syslog.warn("system", `high CPU usage: ${Math.round(stat.avg)}%`)
+            }
+            else {
+                cpuHighCount = 0
+            }
         })
     }, 100)
 

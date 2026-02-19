@@ -631,21 +631,24 @@
         .upload-hint { font-size: 11px; color: var(--text-subtle); margin-top: 4px; }
         .upload-progress {
             background: var(--surface2);
-            border-radius: 4px;
-            height: 5px;
-            margin-bottom: 6px;
+            border-radius: 6px;
+            height: 8px;
+            margin: 10px 0 4px;
             display: none;
+            overflow: hidden;
+            border: 1px solid var(--border);
         }
         .upload-progress-bar {
             height: 100%;
-            background: var(--accent);
-            border-radius: 4px;
+            background: linear-gradient(90deg, var(--accent), #58a6ff);
+            border-radius: 6px;
             width: 0;
-            transition: width 0.15s;
+            transition: width 0.2s ease;
         }
         .upload-progress-label {
-            font-size: 11px;
-            color: var(--text-subtle);
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-muted);
             margin-bottom: 10px;
             display: none;
             white-space: nowrap;

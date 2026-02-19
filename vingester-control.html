@@ -68,6 +68,13 @@
                                     <span class="icon"><i class="fas fa-desktop" data-fa-transform="shrink-7"></i></span>
                                 </span>
                             </div>
+                            <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>syslog settings.' }"
+                                v-on:click="modalToggle('syslog')">
+                                <span class="icon-stack">
+                                    <span class="icon"><i class="fas fa-circle"></i></span>
+                                    <span class="icon"><i class="fas fa-network-wired" data-fa-transform="shrink-7"></i></span>
+                                </span>
+                            </div>
                             <div v-tippy="{ placement: 'bottom', content: 'Click to show/hide the<br/>autosave settings.' }"
                                 v-on:click="modalToggle('autosave')">
                                 <span class="icon-stack">
@@ -280,6 +287,43 @@
                         <p>
                         The REST API for the Web UI is available at <tt>/api/instances</tt>,
                         <tt>/api/all/{command}</tt> and <tt>/api/media</tt>.
+                        </p>
+                    </div>
+                </div>
+                <div class="ui-modal-syslog" v-show="modal === 'syslog'">
+                    <div class="form">
+                        <div class="label label-syslog">Syslog Enabled:</div>
+                        <div class="field field-syslog"
+                            v-tippy="{ placement: 'top', content: 'Click to ' + (syslogEnabled ? 'disable' : 'enable') + ' UDP syslog.<br/>Events are sent when instances start, stop, or are edited.' }">
+                            <div class="toggle" v-on:click="toggleSyslog()">
+                                <div class="toggle-option" v-bind:class="{ selected:  syslogEnabled }"><span class="icon"><i class="fas fa-check-circle"></i></span> YES</div>
+                                <div class="toggle-option" v-bind:class="{ selected: !syslogEnabled }"><span class="icon"><i class="fas fa-times-circle"></i></span> NO</div>
+                            </div>
+                        </div>
+                        <div class="label label-syslog-ip">Syslog IP:</div>
+                        <div class="field field-syslog-ip"
+                            v-tippy="{ placement: 'top', content: 'IP address of your syslog server (UDP).' }">
+                            <input type="text" v-model="syslogIp" placeholder="192.168.1.100"
+                                v-bind:class="{ disabled: syslogEnabled }"
+                                v-bind:disabled="syslogEnabled">
+                        </div>
+                        <div class="label label-syslog-port">UDP Port:</div>
+                        <div class="field field-syslog-port"
+                            v-tippy="{ placement: 'top', content: 'UDP port of your syslog server (usually 514).' }">
+                            <input type="text" v-model="syslogPort" placeholder="514"
+                                v-bind:class="{ disabled: syslogEnabled }"
+                                v-bind:disabled="syslogEnabled">
+                        </div>
+                    </div>
+                    <div class="about">
+                        When enabled, <b>WebRetriever</b> sends RFC 3164 UDP syslog messages
+                        to the configured server for the following events:
+                        instance add / start / stop / reload / edit / delete,
+                        auto-restart after Web UI edit, media file upload,
+                        application startup, and high CPU usage (&gt;80%).
+                        <p>
+                        Any standard syslog receiver (syslog-ng, rsyslog, Graylog, etc.)
+                        can collect these messages on facility <tt>local0</tt>.
                         </p>
                     </div>
                 </div>
